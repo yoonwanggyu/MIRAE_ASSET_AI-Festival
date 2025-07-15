@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 import pandas as pd
 import re
+import yfinance as yf
 
 def get_today_date() -> str:
     '''
@@ -124,3 +125,44 @@ def normalize_date(date_str: str | None = None) -> str:
         return f"{date_std} ({weekday_kr})"
     except Exception:
         raise ValueError(f"지원하지 않는 날짜 형식: {date_str}")
+
+def download_batch(tickers: list[str], start: str, end: str) -> pd.DataFrame | None:
+    """
+    - 빈 DataFrame 이면 None
+    - NaN-only 티커 열 제거(dropna)
+    - 남은 것이 0개면 None
+    - MultiIndex·단일 Index 관계없이 DataFrame 반환
+    """
+    try:
+        df = yf.download(
+            " ".join(tickers),
+            start=start,
+            end=end,
+            interval="1d",
+            group_by="ticker",
+            threads=False,
+            progress=False,
+            auto_adjust=False        # ← 경고 억제용(기존 기본값 유지)
+        )
+    except ValueError as e:
+        # "No objects to concatenate" → 빈 배치
+        if "No objects to concatenate" in str(e):
+            return None
+        raise
+
+    if df.empty:
+        return None
+
+    # 티커 단위로 모두 NaN 인 열 제거
+    df = df.dropna(axis=1, how="all")
+    if df.empty:
+        return None
+
+    # 단일 DF(컬럼: Open/High/…) → MultiIndex 로 강제
+    # if not isinstance(df.columns, pd.MultiIndex):
+    #     tkr = df.name if hasattr(df, "name") else tickers[0]
+    #     df = pd.concat({tkr: df}, axis=1)
+    if not isinstance(df.columns, pd.MultiIndex):
+        df.columns = pd.MultiIndex.from_product([[tickers[0]], df.columns])
+
+    return df
