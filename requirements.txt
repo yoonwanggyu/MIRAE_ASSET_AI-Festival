@@ -10,7 +10,6 @@ langchain-core
 langchain-naver
 langgraph
 langgraph-checkpoint-redis
-langgraph-checkpoint-redis
 langgraph-prebuilt
 
 
