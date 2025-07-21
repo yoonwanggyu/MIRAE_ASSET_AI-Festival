@@ -18,7 +18,7 @@ requests
 
 # --- Database & Caching ---
 # Redis 비동기 클러스터 클라이언트
-redis
+redis>=4.2
 redis-py-cluster
 
 # --- Utilities ---
