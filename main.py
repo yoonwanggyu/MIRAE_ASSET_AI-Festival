@@ -8,9 +8,11 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Response
 from pydantic import BaseModel
 from redis.asyncio.cluster import RedisCluster, RedisClusterException
+from redis.cluster import ClusterNode
+from redis.exceptions import RedisError
 
 from langchain_naver import ChatClovaX
-from langgraph.checkpoint.redis import RedisSaver
+from langgraph_prebuilt.checkpoint.redis import RedisSaver
 
 # 새로 만든 에이전트 코어 생성 함수를 가져옵니다.
 from app.agent_core import create_agent_core, AgentState
@@ -28,22 +30,19 @@ async def lifespan(app: FastAPI):
 
     try:
         redis_config = config['redis_cluster']
-        if 'startup_nodes' in redis_config: # 운영 환경
-            startup_nodes_list = [
-                {"host": node['host'], "port": node['port']} 
-                for node in redis_config['startup_nodes']
-            ]
-            redis_conn = RedisCluster(startup_nodes=startup_nodes_list, decode_responses=True, skip_full_coverage_check=True)
-        else: # 개발 환경
-            redis_conn = RedisCluster(host=redis_config['host'], port=redis_config['port'], decode_responses=True)
+        startup_nodes_list = [
+            ClusterNode(host=node['host'], port=node['port']) 
+            for node in redis_config['startup_nodes']
+        ]
+        redis_conn = RedisCluster(startup_nodes=startup_nodes_list, decode_responses=True)
         await redis_conn.ping()
         print("✅ Redis 클러스터 연결 성공")
-    except Exception as e:
+    except (RedisError, RedisClusterException, AttributeError) as e:
         print(f"❌ Redis 연결 실패: {e}")
-        raise RuntimeError("Redis 연결에 실패했습니다.")
+        raise RuntimeError("Redis 연결에 실패했습니다.") from e
 
     llm = ChatClovaX(api_key=os.getenv('NCP_CLOVASTUDIO_API_KEY'), model="HCX-003", temperature=0.1)
-    checkpointer = RedisSaver(conn=redis_conn)
+    checkpointer = RedisSaver.from_conn(redis_conn)
 
     # create_agent_core 함수를 호출하여 그래프(에이전트 코어)를 생성합니다.
     agent_core = create_agent_core(llm, checkpointer)

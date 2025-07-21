@@ -1,52 +1,13 @@
-version: '3.8'
-
-# 서비스 간의 통신을 위한 가상 네트워크를 정의합니다.
-networks:
-  agent-network:
-    driver: bridge
-
-# 데이터 영속성을 위한 볼륨을 정의합니다.
-volumes:
-  redis-data:
-    driver: local
-
 services:
-  # --------------------------------------------------
-  #  Python FastAPI 애플리케이션 서비스
-  # --------------------------------------------------
   app:
     build: .
     container_name: agent-m-app
     env_file:
       - .env
+    # [핵심] 운영용 설정 파일을 사용하도록 고정합니다.
     environment:
       - CONFIG_FILE=config.yaml
     ports:
       - "8000:8000"
     volumes:
       - .:/app
-    depends_on:
-      redis:
-        condition: service_healthy
-    networks:
-      - agent-network
-
-  # --------------------------------------------------
-  #  Redis 캐시/메모리 서비스 (개발용)
-  # --------------------------------------------------
-  redis:
-    image: redis:7-alpine
-    container_name: agent-m-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-      - ./redis.conf:/usr/local/etc/redis/redis.conf
-    command: redis-server /usr/local/etc/redis/redis.conf
-    healthcheck:
-      test: ["CMD", "redis-cli", "-p", "6379", "cluster", "info"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - agent-network
