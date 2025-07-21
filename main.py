@@ -7,9 +7,11 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, Response
 from pydantic import BaseModel
+
 from redis.asyncio.cluster import RedisCluster, RedisClusterException
 from redis.cluster import ClusterNode
 from redis.exceptions import RedisError
+from redis.asyncio import Redis
 
 from langchain_naver import ChatClovaX
 from langgraph_prebuilt.checkpoint.redis import RedisSaver
@@ -30,14 +32,19 @@ async def lifespan(app: FastAPI):
 
     try:
         redis_config = config['redis_cluster']
-        startup_nodes_list = [
-            ClusterNode(host=node['host'], port=node['port']) 
-            for node in redis_config['startup_nodes']
-        ]
-        redis_conn = RedisCluster(startup_nodes=startup_nodes_list, decode_responses=True)
+        if 'startup_nodes' in redis_config and redis_config['startup_nodes']:
+            print("운영 환경 감지: Redis Cluster 클라이언트를 사용합니다.")
+            startup_nodes_list = [
+                ClusterNode(host=node['host'], port=node['port']) 
+                for node in redis_config['startup_nodes']
+            ]
+            redis_conn = RedisCluster(startup_nodes=startup_nodes_list, decode_responses=True)
+        else:
+            print("개발 환경 감지: Redis 단일 노드 클라이언트를 사용합니다.")
+            redis_conn = Redis(host=redis_config['host'], port=redis_config['port'], decode_responses=True)
         await redis_conn.ping()
-        print("✅ Redis 클러스터 연결 성공")
-    except (RedisError, RedisClusterException, AttributeError) as e:
+        print("✅ Redis 연결 성공")
+    except (RedisError, AttributeError) as e:
         print(f"❌ Redis 연결 실패: {e}")
         raise RuntimeError("Redis 연결에 실패했습니다.") from e
 

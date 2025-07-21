@@ -1,14 +1,14 @@
 # app/agent_core.py
 
 from typing import Annotated, Literal, TypedDict
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
 # app/prompt.py와 app/tools/__init__.py에서 필요한 요소들을 가져옵니다.
-from app.prompt import TASK_ROUTER_PROMPT, ANSWER_PROMPT, TASK2_PROMPT, TASK2_FINAL_PROMPT
-from app.tools import all_tools
+from .prompt import TASK_ROUTER_PROMPT, ANSWER_PROMPT, TASK2_PROMPT, TASK2_FINAL_PROMPT
+from .tools import all_tools
 from utils import parse_llm_json
 
 # 에이전트가 작업하는 동안 상태를 저장하는 데이터 구조
@@ -54,7 +54,7 @@ def create_agent_core(llm, checkpointer):
         json_response = llm.invoke(json_generation_prompt)
         
         # 2) screen_stocks_by_conditions 도구에 구조화된 JSON 전달
-        from app.tools.task2_search import screen_stocks_by_conditions
+        from .tools.task2_conditional import screen_stocks_by_conditions
         tool_result = screen_stocks_by_conditions.invoke({"llm_analyzed_json_string": json_response.content})
         
         # 3) 최종 답변 프롬프트로 결과 가공
@@ -84,21 +84,19 @@ def create_agent_core(llm, checkpointer):
     builder.add_node("task1_tool_node", task1_tool_node)
     builder.add_node("task2_tool_node", task2_node)
     builder.add_node("general_answer", final_answer_node)
-    builder.add_node("final_answer_with_tool", final_answer_node)
 
-    builder.add_edge(START, "router")
+    builder.add_conditional_edges(START, lambda state: "router")
     builder.add_conditional_edges(
         "router",
-        lambda x: x["messages"][-1].content, # task_router_node의 반환값에 따라 분기
+        lambda state, x: x,
         {
             "task1_tool_node": "task1_tool_node",
             "task2_tool_node": "task2_tool_node",
             "general_answer": "general_answer",
         },
     )
-    builder.add_edge("task1_tool_node", "final_answer_with_tool")
+    builder.add_edge("task1_tool_node", "general_answer")
     builder.add_edge("task2_tool_node", END) # Task2는 자체적으로 최종 답변까지 생성
     builder.add_edge("general_answer", END)
-    builder.add_edge("final_answer_with_tool", END)
 
     return builder.compile(checkpointer=checkpointer)
