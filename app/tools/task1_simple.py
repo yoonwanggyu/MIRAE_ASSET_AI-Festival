@@ -4,7 +4,7 @@ from typing import Literal, List, Tuple
 
 from langchain.tools import tool
 
-from app.data_fetcher import *
+from data_fetcher import *
 from utils import get_latest_trading_day, ticker_to_name, _load_krx_tickers
 
 
