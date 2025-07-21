@@ -1,7 +1,7 @@
 import pandas as pd
 import yfinance as yf
 from datetime import timedelta
-from typing import Dict, Any
+from typing import Dict, Any, List
 import concurrent.futures
 
 from utils import *

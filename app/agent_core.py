@@ -1,15 +1,15 @@
 # app/agent_core.py
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypedDict
 from langchain_core.messages import BaseMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
 # app/prompt.py와 app/tools/__init__.py에서 필요한 요소들을 가져옵니다.
-from .prompt import TASK_ROUTER_PROMPT, ANSWER_PROMPT, TASK2_PROMPT, TASK2_FINAL_PROMPT
-from .tools import all_tools
-from .utils import parse_llm_json
+from app.prompt import TASK_ROUTER_PROMPT, ANSWER_PROMPT, TASK2_PROMPT, TASK2_FINAL_PROMPT
+from app.tools import all_tools
+from utils import parse_llm_json
 
 # 에이전트가 작업하는 동안 상태를 저장하는 데이터 구조
 class AgentState(TypedDict):
@@ -54,7 +54,7 @@ def create_agent_core(llm, checkpointer):
         json_response = llm.invoke(json_generation_prompt)
         
         # 2) screen_stocks_by_conditions 도구에 구조화된 JSON 전달
-        from .tools.task2_search import screen_stocks_by_conditions
+        from app.tools.task2_search import screen_stocks_by_conditions
         tool_result = screen_stocks_by_conditions.invoke({"llm_analyzed_json_string": json_response.content})
         
         # 3) 최종 답변 프롬프트로 결과 가공

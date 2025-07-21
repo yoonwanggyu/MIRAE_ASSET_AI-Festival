@@ -8,8 +8,9 @@ uvicorn[standard]
 langchain
 langchain-core
 langchain-naver
-langgraph>=0.3.1
-langgraph-prebuilt>=0.1.8
+langgraph
+langgraph-checkpoint-redis
+
 
 
 # --- Data Handling & APIs ---
