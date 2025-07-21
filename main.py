@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from redis.asyncio.cluster import RedisCluster, RedisClusterException
 
 from langchain_naver import ChatClovaX
-from langgraph_prebuilt.checkpoint.redis import RedisSaver
+from langgraph.checkpoint.redis import RedisSaver
 
 # 새로 만든 에이전트 코어 생성 함수를 가져옵니다.
 from app.agent_core import create_agent_core, AgentState
