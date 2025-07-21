@@ -1,83 +1,12 @@
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import Literal, List, Tuple
-import yaml
 
 from langchain.tools import tool
 
 from app.data_fetcher import *
-from app.utils import *
+from utils import get_latest_trading_day, ticker_to_name, _load_krx_tickers
 
-
-# def _top_by(date: str, metric: Literal["volume", "gain", "drop"], n: int = 10, reverse: bool = True) -> List[Tuple[str, float]]:
-#     """
-#     내부 전용 헬퍼 함수
-#     거래량‧상승률‧하락률 TOP N 종목 뽑는 함수
-#     ex) 5월28일에서 거래량 기준 상위 10개 종목은?
-#         5월 2일 하락률 1~3위는?
-#         오늘 상승률 상위 5개 종목?
-#     """
-
-#     try:
-#         date_std_raw = get_latest_trading_day(date)
-#         date_std = date_std_raw
-#     except ValueError as e:
-#         return f"❌ {e}"
-    
-#     try:
-#         df = pd.read_csv("/krx_tickers.csv", dtype=str)
-#     except FileNotFoundError:
-#         raise FileNotFoundError("KRX 티커 목록 파일(krx_tickers.csv)을 찾을 수 없습니다.")
-
-#     krx_codes = df['code'].tolist()
-#     if not krx_codes:
-#         raise ValueError(f"{date_std} 기준 상장 종목을 찾을 수 없습니다.")
-
-#     # Yahoo 코드 (.KS/.KQ) 변환
-#     yf_codes = [f"{c}.KS" if len(c) == 6 else f"{c}.KQ" for c in krx_codes]
-
-#     d0 = pd.Timestamp(date_std)
-#     d1 = d0 + pd.Timedelta(days=1)
-
-#     frames = []
-#     batch_size = 200
-#     # 병렬 처리 적용
-#     with concurrent.futures.ThreadPoolExecutor() as executor:
-#         futures = [executor.submit(download_batch, yf_codes[i:i + batch_size], d0, d1) for i in range(0, len(yf_codes), batch_size)]
-#         for future in concurrent.futures.as_completed(futures):
-#             result = future.result()
-#             if result is not None and not result.empty:
-#                 frames.append(result)
-    
-#     if not frames:
-#         raise RuntimeError("Yahoo Finance에서 데이터를 가져오지 못했습니다.")
-#     data = pd.concat(frames, axis=1)
-
-#     rows: List[Tuple[str, float]] = []
-#     for code in yf_codes:
-#         try:
-#             s = data[code]
-#             if s.empty or s.get("Close") is None or pd.isna(s["Close"].iloc[0]):
-#                 continue
-            
-#             if metric == "volume":
-#                 val = int(s["Volume"].iloc[0])
-#             else: # gain or drop
-#                 open_, close_ = s["Open"].iloc[0], s["Close"].iloc[0]
-#                 if pd.isna(open_) or open_ == 0: continue
-#                 val = (close_ / open_ - 1) * 100
-            
-#             rows.append((code.split('.')[0], val))
-#         except KeyError:
-#             continue
-
-#     if not rows:
-#         raise RuntimeError("계산 가능한 종목이 없습니다.")
-
-#     # 정렬 및 상위 N 추출
-#     reverse = (metric != "drop")
-#     rows.sort(key=lambda x: x[1], reverse=reverse)
-#     return rows[:n]
 
 def _prepare_batch_fetch(date: str, market: Literal["KOSPI", "KOSDAQ", "ALL"]) -> tuple[dict | None, str | None]:
     """
@@ -94,11 +23,7 @@ def _prepare_batch_fetch(date: str, market: Literal["KOSPI", "KOSDAQ", "ALL"]) -
         if market_u not in {"KOSPI", "KOSDAQ", "ALL"}:
             return None, "❌ market은 'KOSPI', 'KOSDAQ', 'ALL' 중 하나여야 합니다."
 
-        # 설정 파일에서 티커 목록 경로를 읽어옴
-        with open("config.yaml", 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f)
-        ticker_file_path = config['file_paths']['krx_tickers']
-        tickers_df = pd.read_csv(ticker_file_path, dtype={"code": str})
+        tickers_df = _load_krx_tickers()
         
         # 시장에 따라 티커 목록 생성
         if market_u == "ALL":
