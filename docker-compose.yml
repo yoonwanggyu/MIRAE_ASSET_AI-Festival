@@ -1,11 +1,16 @@
+version: '3.8'
+
 services:
   app:
     build: .
     container_name: agent-m-app
     env_file:
       - .env
-    # [핵심] 운영용 설정 파일을 사용하도록 고정합니다.
     environment:
       - CONFIG_FILE=config.yaml
     ports:
       - "8000:8000"
+    volumes:
+      - app-code:/app
+volumes:
+  app-code:
