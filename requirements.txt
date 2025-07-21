@@ -1,0 +1,29 @@
+# --- Core Frameworks ---
+# 서버 실행을 위한 FastAPI와 Uvicorn
+fastapi
+uvicorn[standard]
+
+# --- LangChain & LangGraph ---
+# LangChain/LangGraph 생태계의 핵심 라이브러리
+langchain
+langchain-core
+langchain-naver
+langgraph
+
+# --- Data Handling & APIs ---
+# 데이터 분석, 금융 데이터 조회, API 요청
+pandas
+yfinance
+requests
+
+# --- Database & Caching ---
+# Redis 비동기 클러스터 클라이언트
+redis
+
+# --- Utilities ---
+# .env 파일 및 YAML 설정 파일 로더
+python-dotenv
+pyyaml
+
+# 금융 시장 거래일 캘린더
+pandas-market-calendars
