@@ -20,7 +20,7 @@ services:
     env_file:
       - .env
     environment:
-      - CONFIG_FILE=config.dev.yaml
+      - CONFIG_FILE=config.yaml
     ports:
       - "8000:8000"
     volumes:
@@ -41,8 +41,10 @@ services:
       - "6379:6379"
     volumes:
       - redis-data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-p", "6379", "cluster", "info"]
       interval: 10s
       timeout: 5s
       retries: 5
