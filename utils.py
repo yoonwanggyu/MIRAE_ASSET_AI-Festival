@@ -23,7 +23,7 @@ def _load_krx_tickers() -> pd.DataFrame:
         csv_path = config['file_paths']['krx_tickers']
         print(f"KRX ticker list loaded from: {csv_path}")
         return pd.read_csv(csv_path, dtype={'code': str})
-    except (FileNotFoundError, KeyError) as e:
+    except Exception as e:
         raise ValueError(f"KRX 종목 목록 파일을 로드할 수 없습니다. config.yaml을 확인하세요. 오류: {e}")
 
 def name_to_ticker(stock_name: str) -> str | None:

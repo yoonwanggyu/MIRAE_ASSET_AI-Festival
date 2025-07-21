@@ -7,13 +7,13 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, Response
 from pydantic import BaseModel
-from redis.asyncio.cluster import RedisCluster, StartupNode, RedisClusterException
+from redis.asyncio.cluster import RedisCluster, RedisClusterException
 
 from langchain_naver import ChatClovaX
 from langgraph.checkpoint.redis import RedisSaver
 
 # 새로 만든 에이전트 코어 생성 함수를 가져옵니다.
-from app.agent_core import create_agent_core
+from app.agent_core import create_agent_core, AgentState
 
 # --- FastAPI Lifespan 관리자 ---
 @asynccontextmanager
@@ -29,8 +29,11 @@ async def lifespan(app: FastAPI):
     try:
         redis_config = config['redis_cluster']
         if 'startup_nodes' in redis_config: # 운영 환경
-            startup_nodes = [StartupNode(host=node['host'], port=node['port']) for node in redis_config['startup_nodes']]
-            redis_conn = RedisCluster(startup_nodes=startup_nodes, decode_responses=True, skip_full_coverage_check=True)
+            startup_nodes_list = [
+                {"host": node['host'], "port": node['port']} 
+                for node in redis_config['startup_nodes']
+            ]
+            redis_conn = RedisCluster(startup_nodes=startup_nodes_list, decode_responses=True, skip_full_coverage_check=True)
         else: # 개발 환경
             redis_conn = RedisCluster(host=redis_config['host'], port=redis_config['port'], decode_responses=True)
         await redis_conn.ping()
@@ -79,7 +82,8 @@ async def agent_invoke(req: QueryIn, fastapi_response: Response):
     config = {"configurable": {"thread_id": req.user_id}}
 
     try:
-        final_state = await agent_core.ainvoke({"messages": [("human", req.question)]}, config=config)
+        initial_state = AgentState(messages=[("human", req.question)])
+        final_state = await agent_core.ainvoke(initial_state, config=config)
         final_answer = final_state["messages"][-1].content
         
         request_id = f"req-{uuid.uuid4()}"

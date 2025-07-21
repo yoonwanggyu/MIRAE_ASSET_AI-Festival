@@ -2,8 +2,9 @@ import pandas as pd
 import yfinance as yf
 from datetime import timedelta
 from typing import Dict, Any
+import concurrent.futures
 
-from app.utils import *
+from utils import *
 
 
 def fetch_stock_metadata(stock_name: str) -> tuple[Dict[str, Any] | None, str | None]:
