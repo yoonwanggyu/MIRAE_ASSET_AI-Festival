@@ -19,6 +19,7 @@ requests
 # --- Database & Caching ---
 # Redis 비동기 클러스터 클라이언트
 redis
+redis-py-cluster
 
 # --- Utilities ---
 # .env 파일 및 YAML 설정 파일 로더
