@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-WORKDIR /app
+WORKDIR /code
 
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
@@ -8,7 +8,7 @@ ENV PYTHONUNBUFFERED 1
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip -r requirements.txt
 
-COPY ./app .
+COPY ./app ./app
 
 EXPOSE 8000
 
