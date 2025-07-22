@@ -1,14 +1,17 @@
-version: '3.8'
-
 services:
   app:
     build: .
     container_name: agent-m-app
+    working_dir: /code/app
     env_file:
       - .env
     environment:
-      - CONFIG_FILE=config.yaml
+      - CONFIG_FILE=/code/app/config.yaml
     ports:
       - "8000:8000"
     volumes:
-      - ./app:/app
+      # 앱 소스 전체
+      - ./app:/code/app
+      # config.yaml 이 app 폴더 밖에 있다면 별도로 마운트
+      - ./config.yaml:/code/app/config.yaml
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
