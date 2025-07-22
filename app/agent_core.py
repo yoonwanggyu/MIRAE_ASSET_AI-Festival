@@ -7,9 +7,9 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
 # app/prompt.py와 app/tools/__init__.py에서 필요한 요소들을 가져옵니다.
-from .prompt import TASK_ROUTER_PROMPT, ANSWER_PROMPT, TASK2_PROMPT, TASK2_FINAL_PROMPT
-from .tools import all_tools
-from utils import parse_llm_json
+from app.prompt import TASK_ROUTER_PROMPT, ANSWER_PROMPT, TASK2_PROMPT, TASK2_FINAL_PROMPT
+from app.tools import all_tools
+from app.utils import parse_llm_json
 
 # 에이전트가 작업하는 동안 상태를 저장하는 데이터 구조
 class AgentState(TypedDict):

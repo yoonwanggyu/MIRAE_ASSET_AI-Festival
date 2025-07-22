@@ -4,7 +4,7 @@ from datetime import timedelta
 from typing import Dict, Any, List
 import concurrent.futures
 
-from utils import *
+from app.utils import *
 
 
 def fetch_stock_metadata(stock_name: str) -> tuple[Dict[str, Any] | None, str | None]:

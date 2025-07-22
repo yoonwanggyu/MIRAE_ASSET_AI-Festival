@@ -2,21 +2,19 @@ import os
 import uuid
 import yaml
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, Response
 from pydantic import BaseModel
-
+from redis.asyncio import Redis, RedisError
 from redis.asyncio.cluster import RedisCluster, RedisClusterException
 from redis.cluster import ClusterNode
-from redis.exceptions import RedisError
-from redis.asyncio import Redis
 
 from langchain_naver import ChatClovaX
-from langgraph_prebuilt.checkpoint.redis import RedisSaver
+from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 
-# 새로 만든 에이전트 코어 생성 함수를 가져옵니다.
 from app.agent_core import create_agent_core, AgentState
 
 # --- FastAPI Lifespan 관리자 ---
@@ -25,39 +23,60 @@ async def lifespan(app: FastAPI):
     print("🚀 API 서버 시작: 리소스를 초기화합니다.")
     load_dotenv()
 
-    config_file = os.getenv("CONFIG_FILE", "config.yaml")
-    with open(config_file, 'r', encoding='utf-8') as f:
+    BASE_DIR = Path(__file__).resolve().parent
+    default_cfg = BASE_DIR / "config.yaml"   # main.py 옆
+    config_path = Path(os.getenv("CONFIG_FILE", default_cfg))
+
+    if not config_path.exists():
+        raise FileNotFoundError(f"config.yaml not found at {config_path}")
+
+    with config_path.open("r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
-    print(f"✅ 설정 파일 로드 완료: {config_file}")
+    redis_config = config["redis_cluster"]
+    print("✅ redis 설정 파일 로드 완료")
 
     try:
-        redis_config = config['redis_cluster']
-        if 'startup_nodes' in redis_config and redis_config['startup_nodes']:
-            print("운영 환경 감지: Redis Cluster 클라이언트를 사용합니다.")
-            startup_nodes_list = [
-                ClusterNode(host=node['host'], port=node['port']) 
-                for node in redis_config['startup_nodes']
-            ]
-            redis_conn = RedisCluster(startup_nodes=startup_nodes_list, decode_responses=True)
-        else:
-            print("개발 환경 감지: Redis 단일 노드 클라이언트를 사용합니다.")
-            redis_conn = Redis(host=redis_config['host'], port=redis_config['port'], decode_responses=True)
-        await redis_conn.ping()
-        print("✅ Redis 연결 성공")
-    except (RedisError, AttributeError) as e:
+        startup_nodes = redis_config.get("startup_nodes")
+        if startup_nodes:  # 운영 환경: 클러스터
+            nodes = [ClusterNode(host=n["host"], port=n["port"]) for n in startup_nodes]
+            redis_conn = RedisCluster(startup_nodes=nodes, decode_responses=True)
+            await redis_conn.ping()
+            print("✅ Redis 클러스터 연결 성공")
+
+            # 체크포인터는 현재 단일 노드 URI만 지원 → 첫 노드 사용
+            first = startup_nodes[0]
+            redis_uri = f"redis://{first['host']}:{first['port']}"
+        else:               # 개발 환경: 단일 노드
+            redis_conn = Redis(
+                host=redis_config["host"],
+                port=redis_config["port"],
+                decode_responses=True
+            )
+            await redis_conn.ping()
+            print("✅ Redis 단일 노드 연결 성공")
+            redis_uri = f"redis://{redis_config['host']}:{redis_config['port']}"
+
+    except (RedisError, RedisClusterException) as e:
         print(f"❌ Redis 연결 실패: {e}")
-        raise RuntimeError("Redis 연결에 실패했습니다.") from e
+        raise RuntimeError("Redis 연결에 실패했습니다.")
 
-    llm = ChatClovaX(api_key=os.getenv('NCP_CLOVASTUDIO_API_KEY'), model="HCX-003", temperature=0.1)
-    checkpointer = RedisSaver.from_conn(redis_conn)
+    async with AsyncRedisSaver.from_conn_string(redis_uri) as checkpointer:
+        await checkpointer.asetup()
+        app.state.checkpointer = checkpointer
+        
+        api_key = os.getenv('NCP_CLOVASTUDIO_API_KEY')
+        llm = ChatClovaX(
+            api_key=api_key, 
+            model="HCX-003", 
+            temperature=0.1)
 
-    # create_agent_core 함수를 호출하여 그래프(에이전트 코어)를 생성합니다.
-    agent_core = create_agent_core(llm, checkpointer)
-    app.state.agent_core = agent_core
-    app.state.redis = redis_conn
-    print("✅ 에이전트 코어 생성 완료")
+        # create_agent_core 함수를 호출하여 그래프(에이전트 코어)를 생성합니다.
+        agent_core = create_agent_core(llm, checkpointer)
+        app.state.agent_core = agent_core
+        app.state.redis = redis_conn
+        print("✅ 에이전트 코어 생성 완료")
     
-    yield
+        yield
     
     print("🌙 API 서버 종료: 리소스를 정리합니다.")
     await app.state.redis.close()

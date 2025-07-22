@@ -4,8 +4,8 @@ from typing import Literal, List, Tuple
 
 from langchain.tools import tool
 
-from data_fetcher import *
-from utils import get_latest_trading_day, ticker_to_name, _load_krx_tickers
+from app.data_fetcher import *
+from app.utils import get_latest_trading_day, ticker_to_name, _load_krx_tickers
 
 
 def _prepare_batch_fetch(date: str, market: Literal["KOSPI", "KOSDAQ", "ALL"]) -> tuple[dict | None, str | None]:
