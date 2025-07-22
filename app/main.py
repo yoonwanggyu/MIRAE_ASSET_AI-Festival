@@ -17,6 +17,10 @@ from app.checkpointer.redis_simple import AsyncSimpleRedisSaver
 
 from app.agent_core import create_agent_core, AgentState
 
+import logging
+import traceback
+logger = logging.getLogger("uvicorn.error")
+
 # --- FastAPI Lifespan 관리자 ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -108,9 +112,10 @@ async def agent_invoke(req: QueryIn, fastapi_response: Response):
         return QueryOut(answer=final_answer)
         
     except Exception as e:
+        traceback.print_exc()                       # 콘솔에 full traceback
+        logger.exception("Agent 처리 중 예외 발생")  # uvicorn/error 로거
         print(f"Agent 처리 중 오류 발생: {e}")
-        return QueryOut(answer="죄송합니다, 답변을 처리하는 중 오류가 발생했습니다.")
-
+        return QueryOut(answer=f"오류 발생: {e!r}")
 # --- 서버 실행 ---
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)), reload=True)
