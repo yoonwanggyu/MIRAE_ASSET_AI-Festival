@@ -13,7 +13,7 @@ from redis.asyncio.cluster import RedisCluster, RedisClusterException
 from redis.cluster import ClusterNode
 
 from langchain_naver import ChatClovaX
-from langgraph.checkpoint.redis.aio import AsyncRedisSaver
+from app.checkpointer.redis_simple import AsyncSimpleRedisSaver
 
 from app.agent_core import create_agent_core, AgentState
 
@@ -38,45 +38,34 @@ async def lifespan(app: FastAPI):
     try:
         startup_nodes = redis_config.get("startup_nodes")
         if startup_nodes:  # 운영 환경: 클러스터
-            nodes = [ClusterNode(host=n["host"], port=n["port"]) for n in startup_nodes]
+            nodes = [ClusterNode(n["host"], n["port"]) for n in redis_config["startup_nodes"]]
             redis_conn = RedisCluster(startup_nodes=nodes, decode_responses=True)
-            await redis_conn.ping()
-            print("✅ Redis 클러스터 연결 성공")
-
-            # 체크포인터는 현재 단일 노드 URI만 지원 → 첫 노드 사용
-            first = startup_nodes[0]
-            redis_uri = f"redis://{first['host']}:{first['port']}"
-        else:               # 개발 환경: 단일 노드
-            redis_conn = Redis(
-                host=redis_config["host"],
-                port=redis_config["port"],
-                decode_responses=True
-            )
-            await redis_conn.ping()
-            print("✅ Redis 단일 노드 연결 성공")
-            redis_uri = f"redis://{redis_config['host']}:{redis_config['port']}"
+        else:
+            redis_conn = Redis(host=redis_config["host"], port=redis_config["port"], decode_responses=True)
+        await redis_conn.ping()
+        print("✅ Redis 연결 성공 (NCP)")
 
     except (RedisError, RedisClusterException) as e:
         print(f"❌ Redis 연결 실패: {e}")
         raise RuntimeError("Redis 연결에 실패했습니다.")
 
-    async with AsyncRedisSaver.from_conn_string(redis_uri) as checkpointer:
-        await checkpointer.asetup()
-        app.state.checkpointer = checkpointer
+    checkpointer = AsyncSimpleRedisSaver(redis_conn, prefix="lg:ckpt")
         
-        api_key = os.getenv('NCP_CLOVASTUDIO_API_KEY')
-        llm = ChatClovaX(
-            api_key=api_key, 
-            model="HCX-003", 
-            temperature=0.1)
+    api_key = os.getenv('NCP_CLOVASTUDIO_API_KEY')
+    llm = ChatClovaX(
+        api_key=api_key, 
+        model="HCX-003", 
+        temperature=0.1)
 
-        # create_agent_core 함수를 호출하여 그래프(에이전트 코어)를 생성합니다.
-        agent_core = create_agent_core(llm, checkpointer)
-        app.state.agent_core = agent_core
-        app.state.redis = redis_conn
-        print("✅ 에이전트 코어 생성 완료")
+    # create_agent_core 함수를 호출하여 그래프(에이전트 코어)를 생성합니다.
+    agent_core = create_agent_core(llm, checkpointer)
+    app.state.agent_core = agent_core
+    app.state.redis = redis_conn
+    app.state.checkpointer = checkpointer
+
+    print("✅ 에이전트 코어 생성 완료")
     
-        yield
+    yield
     
     print("🌙 API 서버 종료: 리소스를 정리합니다.")
     await app.state.redis.close()

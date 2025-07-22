@@ -8,9 +8,8 @@ uvicorn[standard]
 langchain
 langchain-core
 langchain-naver
-langgraph
-langgraph-checkpoint-redis
-
+langgraph>=0.5.0
+langgraph-checkpoint-sqlite
 
 # --- Data Handling & APIs ---
 # 데이터 분석, 금융 데이터 조회, API 요청
@@ -20,7 +19,7 @@ requests
 
 # --- Database & Caching ---
 # Redis 비동기 클러스터 클라이언트
-redis>=4.2
+redis>=5.0.0
 redis-py-cluster
 
 # --- Utilities ---
