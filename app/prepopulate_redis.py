@@ -1,16 +1,9 @@
-# app/prepopulate_redis.py
-"""
-config.yaml에 정의된 Redis‑Cluster 노드와 KRX 티커 CSV 경로를 읽어
-2024‑01‑01~2025‑07‑31 일별 시세를 yfinance → Redis 에 일괄 적재합니다.
-"""
-
-import os, json, time, yaml, sys
-from datetime import datetime
+import os, sys, json, time, yaml
 from pathlib import Path
-from typing import List
+from typing import List, Dict
 
-import pandas as pd
 import yfinance as yf
+import pandas as pd
 from redis.cluster import RedisCluster, ClusterNode
 
 # ── 1. 설정 파일 로드 ─────────────────────────────────────────────
@@ -22,6 +15,8 @@ startup_nodes_cfg = cfg["redis_cluster"]["startup_nodes"]  # [{'host':..., 'port
 startup_nodes = [ClusterNode(n["host"], n["port"]) for n in startup_nodes_cfg]
 
 csv_path      = BASE_DIR / cfg["file_paths"]["krx_tickers"]  # 상대경로 → 절대경로
+if not csv_path.exists():
+    sys.exit(f"❌ CSV 파일을 찾을 수 없습니다: {csv_path}")
 
 # ── 2. Redis 클러스터 연결 ─────────────────────────────────────────
 # redis_pw = os.getenv("REDIS_PASSWORD")  # 필요 없으면 None
@@ -33,13 +28,25 @@ redis_cli = RedisCluster(
 print("✅ Redis 연결 완료")
 
 # ── 3. 티커 목록 준비 (.KS suffix) ────────────────────────────────
-tickers = (
-    pd.read_csv(csv_path)["code"]
-    .astype(str).str.zfill(6)
-    .apply(lambda x: f"{x}.KS")
-    .tolist()
-)
-print(f"📈 총 {len(tickers):,}개 티커 로드")
+df = pd.read_csv(csv_path)
+required_cols = {"code", "market"}
+if not required_cols.issubset(set(df.columns)):
+    sys.exit(f"❌ CSV에 code·market 열이 없습니다: {df.columns}")
+suffix_map = {"KOSPI": ".KS", "KOSDAQ": ".KQ", "KONEX": ".KN"}
+
+def to_symbol(row):
+    code6   = str(row["code"]).zfill(6)
+    market  = row["market"]
+    suffix  = suffix_map.get(market, ".KS")
+    return f"{code6}{suffix}"
+
+df["symbol"] = df.apply(to_symbol, axis=1)
+
+symbols        = df["symbol"].tolist()
+symbol2market  = dict(zip(df["symbol"], df["market"]))
+symbol2code    = dict(zip(df["symbol"], df["code"].astype(str).str.zfill(6)))
+
+print(f"📈 총 {len(symbols):,}개 티커 로드")
 
 # ── 4. 기간 설정 & 배치 파라미터 ──────────────────────────────────
 START_DATE = "2024-01-01"
@@ -53,25 +60,37 @@ def chunks(lst: List[str], n: int):
 
 # ── 5. 다운로드 → Redis 저장 ──────────────────────────────────────
 total_rows = 0
-for idx, batch in enumerate(chunks(tickers, BATCH), 1):
-    print(f"\n🚚 Batch {idx}: {len(batch)} tickers")
-    df = yf.download(
-        tickers=" ".join(batch),
+
+for batch_idx, batch_syms in enumerate(chunks(symbols, BATCH_SIZE), 1):
+    print(f"\n🚚 Batch {batch_idx}: {len(batch_syms)} tickers")
+
+    df_batch = yf.download(
+        tickers=" ".join(batch_syms),
         start=START_DATE,
         end=END_DATE,
         group_by="ticker",
-        threads=True,
         progress=False,
+        threads=True,
+        auto_adjust=False,
+        raise_errors=False,        # 실패 티커 무시
     )
+    if df_batch.empty:
+        print("⚠️  전부 다운로드 실패, 건너뜀")
+        continue
 
     pipe = redis_cli.pipeline()
-    for code_full in batch:
-        code = code_full.split(".")[0]      # '005930'
-        if code not in df.columns.levels[0]:
+    for sym in batch_syms:
+        if sym not in df_batch.columns.levels[0]:
+            print(f"⚠️  {sym} 데이터 없음, 스킵")
             continue
 
-        for date, row in df[code].dropna().iterrows():
-            key = f"stock:{code}:{date.strftime('%Y-%m-%d')}"
+        sub = df_batch[sym].dropna()
+        market = symbol2market[sym]
+        code6  = symbol2code[sym]
+
+        for d, row in sub.iterrows():
+            date_str = d.strftime("%Y-%m-%d")
+            key = f"{date_str}:{market}:{code6}"
             value = json.dumps(
                 {
                     "open":   round(row["Open"],  2),
@@ -84,11 +103,11 @@ for idx, batch in enumerate(chunks(tickers, BATCH), 1):
             )
             pipe.set(key, value)
 
-        total_rows += len(df[code].dropna())
+        total_rows += len(sub)
 
     pipe.execute()
-    print(f"✅ Batch {idx} 완료, 누적 {total_rows:,} rows 저장")
-    time.sleep(PAUSE)
+    print(f"✅ Batch {batch_idx} 완료, 누적 {total_rows:,} rows 저장")
+    time.sleep(SLEEP_SEC)
 
 print(f"\n🎉 전체 완료: {total_rows:,} rows Redis 적재")
 redis_cli.close()
