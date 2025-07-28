@@ -1,94 +1,92 @@
+# app/prepopulate_redis.py
+"""
+config.yaml에 정의된 Redis‑Cluster 노드와 KRX 티커 CSV 경로를 읽어
+2024‑01‑01~2025‑07‑31 일별 시세를 yfinance → Redis 에 일괄 적재합니다.
+"""
+
+import os, json, time, yaml, sys
+from datetime import datetime
+from pathlib import Path
+from typing import List
+
 import pandas as pd
 import yfinance as yf
-import yaml
-from datetime import datetime, timedelta
+from redis.cluster import RedisCluster
 
-# [수정] Redis 클러스터 클라이언트를 임포트합니다.
-from rediscluster import RedisCluster
-from rediscluster.exceptions import RedisClusterException
+# ── 1. 설정 파일 로드 ─────────────────────────────────────────────
+BASE_DIR = Path(__file__).resolve().parent
+with (BASE_DIR / "config.yaml").open("r", encoding="utf-8") as f:
+    cfg = yaml.safe_load(f)
 
-def connect_to_ncloud_redis_cluster(config):
-    """
-    nCloud Redis Cluster에 연결하는 함수.
-    config.prod.yaml의 startup_nodes 정보를 사용합니다.
-    """
-    # [수정] 클러스터 노드 정보를 읽어옵니다.
-    redis_config = config['redis_cluster']
-    startup_nodes = [
-        {"host": node['host'], "port": node['port']} 
-        for node in redis_config['startup_nodes']
-    ]
+startup_nodes = cfg["redis_cluster"]["startup_nodes"]
+csv_path      = BASE_DIR / cfg["file_paths"]["krx_tickers"]  # 상대경로 → 절대경로
 
-    try:
-        # [수정] RedisCluster 클라이언트를 생성합니다.
-        client = RedisCluster(startup_nodes=startup_nodes, decode_responses=True)
-        client.ping()
-        print("✅ nCloud Redis Cluster 연결 성공")
-        return client
-    except RedisClusterException as e:
-        print(f"❌ nCloud Redis Cluster 연결 실패: {e}")
-        raise
+# ── 2. Redis 클러스터 연결 ─────────────────────────────────────────
+# redis_pw = os.getenv("REDIS_PASSWORD")  # 필요 없으면 None
+redis_cli = RedisCluster(
+    startup_nodes=startup_nodes,
+    decode_responses=True,
+    # password=redis_pw,
+)
+print("✅ Redis 연결 완료")
 
-def main():
-    """최근 1년 치의 KOSPI/KOSDAQ 종가 및 거래량 데이터를 nCloud Redis Cluster에 저장합니다."""
-    # 1. 설정 및 티커 목록 로드
-    # [수정] nCloud 접속 정보가 담긴 'production'용 설정 파일을 사용합니다.
-    with open("config.yaml", 'r', encoding='utf-8') as f:
-        config = yaml.safe_load(f)
+# ── 3. 티커 목록 준비 (.KS suffix) ────────────────────────────────
+tickers = (
+    pd.read_csv(csv_path)["ticker"]
+    .astype(str).str.zfill(6)
+    .apply(lambda x: f"{x}.KS")
+    .tolist()
+)
+print(f"📈 총 {len(tickers):,}개 티커 로드")
 
-    r = connect_to_ncloud_redis_cluster(config)
+# ── 4. 기간 설정 & 배치 파라미터 ──────────────────────────────────
+START_DATE = "2024-01-01"
+END_DATE   = "2025-07-31"
+BATCH      = 100   # yfinance 동시 다운로드 종목수
+PAUSE      = 2     # 배치 간 대기(초)
 
-    ticker_file_path = config['file_paths']['krx_tickers']
-    tickers_df = pd.read_csv(ticker_file_path, dtype={"code": str})
-    
-    tickers_df["suffix"] = tickers_df["market"].apply(lambda x: ".KS" if x.upper() == "KOSPI" else ".KQ")
-    tickers = (tickers_df["code"] + tickers_df["suffix"]).tolist()
-    
-    # 2. 데이터 조회 기간 설정 (최근 1년)
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=730)
-    
-    print(f"데이터 조회 기간: {start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}")
-    print(f"총 {len(tickers)}개 종목의 데이터 저장 시작...")
+def chunks(lst: List[str], n: int):
+    for i in range(0, len(lst), n):
+        yield lst[i : i + n]
 
-    # 3. yfinance로 데이터 다운로드
-    hist_df = yf.download(tickers, start=start_date, end=end_date, progress=True)
+# ── 5. 다운로드 → Redis 저장 ──────────────────────────────────────
+total_rows = 0
+for idx, batch in enumerate(chunks(tickers, BATCH), 1):
+    print(f"\n🚚 Batch {idx}: {len(batch)} tickers")
+    df = yf.download(
+        tickers=" ".join(batch),
+        start=START_DATE,
+        end=END_DATE,
+        group_by="ticker",
+        threads=True,
+        progress=False,
+    )
 
-    if hist_df.empty:
-        print("❌ 데이터를 다운로드하지 못했습니다.")
-        return
+    pipe = redis_cli.pipeline()
+    for code_full in batch:
+        code = code_full.split(".")[0]      # '005930'
+        if code not in df.columns.levels[0]:
+            continue
 
-    # 4. Redis에 저장하기 좋은 형태로 데이터 가공
-    close_df = hist_df['Close'].stack().reset_index()
-    close_df.columns = ['Date', 'Ticker', 'Close']
-    
-    volume_df = hist_df['Volume'].stack().reset_index()
-    volume_df.columns = ['Date', 'Ticker', 'Volume']
-    
-    print("데이터 가공 완료. Redis에 저장을 시작합니다...")
+        for date, row in df[code].dropna().iterrows():
+            key = f"stock:{code}:{date.strftime('%Y-%m-%d')}"
+            value = json.dumps(
+                {
+                    "open":   round(row["Open"],  2),
+                    "high":   round(row["High"],  2),
+                    "low":    round(row["Low"],   2),
+                    "close":  round(row["Close"], 2),
+                    "volume": int(row["Volume"]),
+                },
+                ensure_ascii=False,
+            )
+            pipe.set(key, value)
 
-    # 5. Redis 파이프라인을 사용하여 데이터 저장
-    # 클러스터 클라이언트도 파이프라인을 지원하여 효율적인 저장이 가능합니다.
-    pipeline = r.pipeline()
-    total_saved = 0
-    
-    # 종가 저장
-    for _, row in close_df.dropna().iterrows():
-        date_str = row['Date'].strftime('%Y-%m-%d')
-        key = f"hist:{row['Ticker']}:Close"
-        pipeline.hset(key, date_str, row['Close'])
-        total_saved += 1
+        total_rows += len(df[code].dropna())
 
-    # 거래량 저장
-    for _, row in volume_df.dropna().iterrows():
-        date_str = row['Date'].strftime('%Y-%m-%d')
-        key = f"hist:{row['Ticker']}:Volume"
-        pipeline.hset(key, date_str, row['Volume'])
-        total_saved += 1
+    pipe.execute()
+    print(f"✅ Batch {idx} 완료, 누적 {total_rows:,} rows 저장")
+    time.sleep(PAUSE)
 
-    pipeline.execute()
-    print(f"✅ 총 {total_saved // 2}개 종목의 {total_saved}개 데이터 포인트를 Redis에 저장했습니다.")
-
-
-if __name__ == "__main__":
-    main()
+print(f"\n🎉 전체 완료: {total_rows:,} rows Redis 적재")
+redis_cli.close()
