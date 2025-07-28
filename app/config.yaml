@@ -7,4 +7,4 @@ redis_cluster:
     - host: "redisc-35raph.vpc-cdb.ntruss.com"
       port: 6379
 file_paths:
-  krx_tickers: "app/data/krx_tickers_with_market.csv"
+  krx_tickers: "data/krx_tickers_with_market.csv"
