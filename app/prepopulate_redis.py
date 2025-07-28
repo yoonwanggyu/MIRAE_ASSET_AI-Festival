@@ -11,14 +11,16 @@ from typing import List
 
 import pandas as pd
 import yfinance as yf
-from redis.cluster import RedisCluster
+from redis.cluster import RedisCluster, ClusterNode
 
 # ── 1. 설정 파일 로드 ─────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent
 with (BASE_DIR / "config.yaml").open("r", encoding="utf-8") as f:
     cfg = yaml.safe_load(f)
 
-startup_nodes = cfg["redis_cluster"]["startup_nodes"]
+startup_nodes_cfg = cfg["redis_cluster"]["startup_nodes"]  # [{'host':..., 'port':...}, ...]
+startup_nodes = [ClusterNode(n["host"], n["port"]) for n in startup_nodes_cfg]
+
 csv_path      = BASE_DIR / cfg["file_paths"]["krx_tickers"]  # 상대경로 → 절대경로
 
 # ── 2. Redis 클러스터 연결 ─────────────────────────────────────────
