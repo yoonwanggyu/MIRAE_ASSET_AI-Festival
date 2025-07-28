@@ -83,7 +83,7 @@ def get_latest_trading_day(date_str: str = "오늘") -> str:
     """
     try:
         base_date = pd.to_datetime(parse_date_string(date_str))
-        krx_calendar = mcal.get_calendar('KRX')
+        krx_calendar = mcal.get_calendar('XKRX')
         
         # 기준일로부터 과거 10일간의 스케줄 조회
         schedule = krx_calendar.schedule(start_date=base_date - timedelta(days=10), end_date=base_date)
