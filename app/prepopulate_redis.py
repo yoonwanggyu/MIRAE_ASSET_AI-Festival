@@ -71,8 +71,7 @@ for batch_idx, batch_syms in enumerate(chunks(symbols, BATCH_SIZE), 1):
         group_by="ticker",
         progress=False,
         threads=True,
-        auto_adjust=False,
-        raise_errors=False,        # 실패 티커 무시
+        auto_adjust=False,      # 실패 티커 무시
     )
     if df_batch.empty:
         print("⚠️  전부 다운로드 실패, 건너뜀")
