@@ -101,7 +101,11 @@ async def agent_invoke(req: QueryIn, fastapi_response: Response):
 
     try:
         initial_state = AgentState(messages=[("human", req.question)])
+        print(f"🌟 initial_state: {initial_state}")
+
         final_state = await agent_core.ainvoke(initial_state, config=config)
+        print(f"🌟 final_state: {final_state}")
+
         final_answer = final_state["messages"][-1].content
         
         request_id = f"req-{uuid.uuid4()}"

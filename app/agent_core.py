@@ -19,9 +19,6 @@ class AgentState(TypedDict):
 def create_agent_core(llm, checkpointer):
     """'에이전트 코어' (LangGraph)를 생성하고 컴파일하는 함수"""
 
-    # LLM에 도구(Tool) 정보를 바인딩하여, LLM이 도구를 사용할 수 있게 만듭니다.
-    llm_with_tools = llm.bind_tools(all_tools)
-
     # --- 에이전트의 작업 단위(Node) 정의 ---
 
     # 1. Router: 사용자의 질문에 따라 어떤 Task를 수행할지 결정

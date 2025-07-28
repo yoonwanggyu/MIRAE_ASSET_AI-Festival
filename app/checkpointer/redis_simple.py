@@ -66,3 +66,11 @@ class AsyncSimpleRedisSaver(BaseCheckpointSaver):
             "parent_config": parent_config or {},
         }
         await self.redis.set(f"{self.prefix}:{thread_id}", json.dumps(payload))
+
+    async def adelete(self, thread_id: str) -> None:
+        await self.redis.delete(f"{self.prefix}:{thread_id}")
+
+    async def alist(self, limit: int = 50, offset: int = 0):
+        keys = await self.redis.keys(f"{self.prefix}:*")
+        keys = sorted(keys)[offset:offset+limit]
+        return [{"thread_id": k.split(":")[-1]} for k in keys]
