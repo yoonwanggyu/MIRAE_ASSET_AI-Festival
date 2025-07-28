@@ -34,7 +34,7 @@ print("✅ Redis 연결 완료")
 
 # ── 3. 티커 목록 준비 (.KS suffix) ────────────────────────────────
 tickers = (
-    pd.read_csv(csv_path)["ticker"]
+    pd.read_csv(csv_path)["code"]
     .astype(str).str.zfill(6)
     .apply(lambda x: f"{x}.KS")
     .tolist()
