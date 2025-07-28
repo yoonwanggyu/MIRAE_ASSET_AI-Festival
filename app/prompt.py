@@ -52,6 +52,23 @@ Answer in Korean with clear explanations.
 
 챗봇 답변:
 """
+TASK1_TOOL_PROMPT = """
+다음 함수 중 **정확히 하나**를 JSON 한 줄로 호출하세요.
+형식과 키 이름은 예시를 반드시 따릅니다.
+
+# 함수 목록
+- get_stock_info: 주가·종가·거래량 조회
+  • args:
+    - stock_name (string)  : 종목명 예) "삼성전자"
+    - date       (string)  : "YYYY-MM-DD" 형식 날짜
+    - field      (string)  : "close" | "volume" | "open" ...
+
+# 예시
+{"tool":"get_stock_info","args":{"stock_name":"삼성전자","date":"2025-07-28","field":"close"}}
+
+### 사용자 질문
+{question}
+"""
 
 TASK2_PROMPT = """
 # ROLE: system

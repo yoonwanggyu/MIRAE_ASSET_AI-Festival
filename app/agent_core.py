@@ -10,6 +10,7 @@ from langgraph.graph.message import add_messages
 from app.prompt import (
     TASK_ROUTER_PROMPT,
     ANSWER_PROMPT,
+    TASK1_TOOL_PROMPT,
     TASK2_PROMPT,
     TASK2_FINAL_PROMPT,
 )
@@ -38,20 +39,12 @@ def create_agent_core(llm):
         return {"task_id": tid, "next_node": next_node, "router_raw": raw}
 
     # --- 2. Task‑1 : 주가·뉴스 등 단순 툴 호출 ---------------------------
-    TASK1_PROMPT = (
-        "You are given a list of available functions with their JSON schema.\n"
-        "Respond **only** with a JSON object matching this schema:\n"
-        '{"tool":"<function name>", "args":{<param1>:<value>, ...}}\n'
-        "### Functions\n" +
-        "\n".join(f"- {t.name}: {t.description.splitlines()[0]}" for t in all_tools) +
-        "\n\n### Question\n{question}"
-    )
 
     def task1(state: AgentState) -> dict:
         question = state["messages"][-1].content
 
         # ① 어떤 함수 쓸지 LLM에 물어봄
-        raw = llm.invoke(TASK1_PROMPT.format(question=question)).content.strip()
+        raw = llm.invoke(TASK1_TOOL_PROMPT.format(question=question)).content.strip()
         try:
             call = parse_llm_json(raw)  # 안전 파싱
             tool_name, args = call["tool"], call.get("args", {})
