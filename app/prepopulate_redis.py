@@ -51,8 +51,8 @@ print(f"📈 총 {len(symbols):,}개 티커 로드")
 # ── 4. 기간 설정 & 배치 파라미터 ──────────────────────────────────
 START_DATE = "2024-01-01"
 END_DATE   = "2025-07-31"
-BATCH      = 100   # yfinance 동시 다운로드 종목수
-PAUSE      = 2     # 배치 간 대기(초)
+BATCH_SIZE      = 100   # yfinance 동시 다운로드 종목수
+SLEEP_SEC      = 2     # 배치 간 대기(초)
 
 def chunks(lst: List[str], n: int):
     for i in range(0, len(lst), n):
