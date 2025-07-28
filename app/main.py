@@ -13,7 +13,6 @@ from redis.asyncio.cluster import RedisCluster, RedisClusterException
 from redis.cluster import ClusterNode
 
 from langchain_naver import ChatClovaX
-from app.checkpointer.redis_simple import AsyncSimpleRedisSaver
 
 from app.agent_core import create_agent_core, AgentState
 
@@ -52,8 +51,6 @@ async def lifespan(app: FastAPI):
     except (RedisError, RedisClusterException) as e:
         print(f"❌ Redis 연결 실패: {e}")
         raise RuntimeError("Redis 연결에 실패했습니다.")
-
-    checkpointer = AsyncSimpleRedisSaver(redis_conn, prefix="lg:ckpt")
         
     api_key = os.getenv('NCP_CLOVASTUDIO_API_KEY')
     llm = ChatClovaX(
@@ -62,7 +59,7 @@ async def lifespan(app: FastAPI):
         temperature=0.1)
 
     # create_agent_core 함수를 호출하여 그래프(에이전트 코어)를 생성합니다.
-    agent_core = create_agent_core(llm, checkpointer)
+    agent_core = create_agent_core(llm)
     app.state.agent_core = agent_core
     app.state.redis = redis_conn
     app.state.checkpointer = checkpointer
