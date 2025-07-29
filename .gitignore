@@ -1,0 +1,9 @@
+.env
+*.csv
+*.pdf
+__pycache__
+.DS_Store
+README.md
+file
+test_code
+test

@@ -1,168 +1,136 @@
 from datetime import datetime, timedelta
 import pandas as pd
-import re
 import yfinance as yf
+import json, re, ast, time
 
-def get_today_date() -> str:
-    '''
-    오늘 날짜를 "YYYY-MM-DD" 형식으로 반환합니다.
-    '''
-    return datetime.now().strftime("%Y-%m-%d")
+"""
+Task1 / Task2 / Task3 공통으로 사용되는 함수 정리 
+"""
 
-def name_to_ticker(name: str, csv_path="/Users/yoon/MIRAE_ASSET_AI-Festival/krx_tickers.csv"):
-    '''
-    코스피/코스닥 한글명(종목명) → 6자리 코드.KS/KQ(티커명)
-    '''
+# 티커 / 종목명 / 시장 정리한 파일
+market_list = pd.read_csv("krx_tickers_cleaned.csv 경로")
 
-    df = pd.read_csv(csv_path)
-    name_std = name.strip()
-    row = df.loc[df["name"] == name_std]
-    if row.empty:
-        return None
+# 종목명을 티커로 변경
+name_to_ticker = {row['name']: f"{str(row['code']).zfill(6)}{'.KS' if row['market']=='KOSPI' else '.KQ'}"for _, row in market_list.iterrows()}
 
-    ticker = row["code"].iloc[0].zfill(6)
-    return f"{ticker}.KS" if ticker[0] == "0" else f"{ticker}.KQ"
+# 티커를 종목명으로 변경
+ticker_to_name = dict(zip(market_list['code'], market_list['name']))
 
-def ticker_to_name(ticker: str, csv_path="/Users/yoon/MIRAE_ASSET_AI-Festival/krx_tickers.csv") -> str | None:
+# 특정 종목이 속한 시장 반환
+name_to_market = dict(zip(market_list['name'], market_list['market']))
+
+def parse_llm_json(text: str) -> dict:
     """
-    6자리 코드.KS/KQ(티커명) → 코스피/코스닥 한글명(종목명)
+    LLM이 질문을 각 Task에 맞게 분석한 JSON을 정리하는 함수
     """
-    code = ticker.split(".")[0].zfill(6)
+    # 1)  {...} 블록만 추출
+    m = re.search(r'\{.*\}', text, re.S)
+    if not m:
+        raise ValueError("JSON 블록을 찾을 수 없습니다.")
+    j = m.group()
 
-    df = pd.read_csv(csv_path, dtype=str)
-    row = df.loc[df["code"] == code]
-    if row.empty:
-        return None
-
-    return row["name"].iloc[0]
-
-def normalize_date(date_str: str | None = None) -> str:
-    """
-    • date_str가 None 이면 → 오늘 날짜
-    • '오늘', '어제', '그제', '일주일전' 같은 한국어 상대표현 처리
-    • 숫자·슬래시·'월/일' 포맷 등 폭넓게 지원
-    ▸ 반환: 'YYYY-MM-DD'
-    """
-
-    # 기준 날짜
-    today = datetime.today()
-    weekday_num = today.weekday()  
-    kor = ["월", "화", "수", "목", "금", "토", "일"]
-    weekday_kr = kor[weekday_num] + "요일"  
-
-    # ── 0) '지난주 ○요일' 핸들링 ───────────────────
-    m = re.fullmatch(r"^지난주\s*([월화수목금토일])요일?$", date_str or "", re.I)
-    if m:
-        target_wd = kor.index(m.group(1))
-        # 지난주 기준일 = today - 7일
-        last_week = today - timedelta(days=7)
-        # 그 주(지난주)의 target_wd 계산
-        # last_week.weekday(): Mon=0…Sun=6
-        delta = target_wd - last_week.weekday()
-        return (last_week + timedelta(days=delta)).strftime("%Y-%m-%d")
-
-    # 1) None → 오늘
-    if date_str is None or str(date_str).strip() == "":
-        return today.strftime("%Y-%m-%d")(weekday_kr)
-
-    s = date_str.strip()
-
-    # 2) 상대 표현 매핑
-    rel_map = {
-        r"^오늘$": 0,
-        r"^어제$": -1,
-        r"^그제$": -2,
-        r"^(\d+)일[전 ago]*$": lambda m: -int(m.group(1)),
-        r"^(일|1)주일?전$": -7,
-        r"^지난주$": -7,
-        r"^(한|1)달전$": -30,
-    }
-    for pat, delta in rel_map.items():
-        m = re.fullmatch(pat, s, re.I)
-        if m:
-            offset = delta(m) if callable(delta) else delta
-            dt = today + timedelta(days=offset).strftime("%Y-%m-%d")
-            weekday = kor[dt.weekday()]
-            return f"{dt} ({weekday})"
-
-    # 3) YYYYMMDD
-    if re.fullmatch(r"\d{8}", s):
-        date_std = datetime.strptime(s, "%Y%m%d").strftime("%Y-%m-%d")
-        dt       = datetime.strptime(date_std, "%Y-%m-%d")
-        weekday_kr = kor[dt.weekday()] + "요일"
-        return f"{date_std} ({weekday_kr})"
-
-    # 4) ISO(YYYY-MM-DD)
+    # 2) JSON → dict
     try:
-        date_std = datetime.strptime(s, "%Y-%m-%d").strftime("%Y-%m-%d")
-        dt       = datetime.strptime(date_std, "%Y-%m-%d")
-        weekday_kr = kor[dt.weekday()] + "요일"
-        return f"{date_std} ({weekday_kr})"
-    except ValueError:
-        pass
-
-    # 5) 'M월D일', 'MM/DD', 'MM.DD'
-    m = re.fullmatch(r"(\d{1,2})\s*월\s*(\d{1,2})\s*일", s)
-    if m:
-        month, day = map(int, m.groups())
-        date_std   = datetime(today.year, month, day).strftime("%Y-%m-%d")
-        dt         = datetime.strptime(date_std, "%Y-%m-%d")
-        weekday_kr = kor[dt.weekday()] + "요일"
-        return f"{date_std} ({weekday_kr})"
-
-    m = re.fullmatch(r"(\d{1,2})[./\s](\d{1,2})", s)
-    if m:
-        month, day = map(int, m.groups())
-        date_std   = datetime(today.year, month, day).strftime("%Y-%m-%d")
-        dt         = datetime.strptime(date_std, "%Y-%m-%d")
-        weekday_kr = kor[dt.weekday()] + "요일"
-        return f"{date_std} ({weekday_kr})"
-
-    # 6) 파이널 폴백
-    try:
-        date_std = pd.to_datetime(s).strftime("%Y-%m-%d")
-        weekday_kr = kor[dt.weekday()] + "요일"
-        return f"{date_std} ({weekday_kr})"
-    except Exception:
-        raise ValueError(f"지원하지 않는 날짜 형식: {date_str}")
-
-def download_batch(tickers: list[str], start: str, end: str) -> pd.DataFrame | None:
+        return json.loads(j)
+    except json.JSONDecodeError:
+        return ast.literal_eval(j)  
+    
+def get_tickers(answer):
     """
-    - 빈 DataFrame 이면 None
-    - NaN-only 티커 열 제거(dropna)
-    - 남은 것이 0개면 None
-    - MultiIndex·단일 Index 관계없이 DataFrame 반환
+    특정 시장에 있는 모든 티커들을 불러오는 함수
     """
-    try:
-        df = yf.download(
-            " ".join(tickers),
-            start=start,
-            end=end,
-            interval="1d",
-            group_by="ticker",
-            threads=False,
-            progress=False,
-            auto_adjust=False        # ← 경고 억제용(기존 기본값 유지)
-        )
-    except ValueError as e:
-        # "No objects to concatenate" → 빈 배치
-        if "No objects to concatenate" in str(e):
-            return None
-        raise
+    if answer['market'] == "KOSPI":
+        ticker_lists = market_list.loc[market_list["market"] == "KOSPI", "code"].tolist()
+        ticker_lists = [f"{ticker}.KS" for ticker in ticker_lists]
+        return ticker_lists
+    elif answer['market'] == "KOSDAQ":
+        ticker_lists = market_list.loc[market_list["market"] == "KOSDAQ", "code"].tolist()
+        ticker_lists = [f"{ticker}.KQ" for ticker in ticker_lists]
+        return ticker_lists
+    else:
+        kospi_tickers = market_list.loc[market_list["market"] == "KOSPI", "code"].tolist()
+        kosdaq_tickers = market_list.loc[market_list["market"] == "KOSDAQ", "code"].tolist()
+        ticker_lists = [f"{ticker}.KS" for ticker in kospi_tickers] + \
+                      [f"{ticker}.KQ" for ticker in kosdaq_tickers]
+        return ticker_lists
 
-    if df.empty:
-        return None
-
-    # 티커 단위로 모두 NaN 인 열 제거
-    df = df.dropna(axis=1, how="all")
-    if df.empty:
-        return None
-
-    # 단일 DF(컬럼: Open/High/…) → MultiIndex 로 강제
-    # if not isinstance(df.columns, pd.MultiIndex):
-    #     tkr = df.name if hasattr(df, "name") else tickers[0]
-    #     df = pd.concat({tkr: df}, axis=1)
-    if not isinstance(df.columns, pd.MultiIndex):
-        df.columns = pd.MultiIndex.from_product([[tickers[0]], df.columns])
-
-    return df
+def download_in_batches(tickers, start_dt, end_dt, batch_size=100):
+    """
+    배치 단위로 다운로드 후 멀티인덱스 DataFrame으로 합치는 함수
+    """
+    all_ticker_data = {}
+    total_batches = len(tickers) // batch_size + (1 if len(tickers) % batch_size > 0 else 0)
+    
+    for i in range(0, len(tickers), batch_size):
+        batch = tickers[i:i+batch_size]
+        batch_num = i // batch_size + 1
+        
+        print(f"Processing batch {batch_num}/{total_batches} ({len(batch)} tickers)")
+        
+        try:
+            # 배치 단위로 다운로드
+            hist = yf.download(
+                tickers=" ".join(batch),
+                start=start_dt,
+                end=end_dt,
+                interval="1d",
+                group_by="ticker",
+                progress=False,
+                threads=True,
+                auto_adjust=False,
+            )
+            
+            if not hist.empty:
+                # 단일 종목인 경우 멀티인덱스로 변환
+                if len(batch) == 1:
+                    ticker = batch[0]
+                    hist.columns = pd.MultiIndex.from_product([[ticker], hist.columns])
+                
+                # 각 ticker별로 데이터 저장
+                for ticker in batch:
+                    try:
+                        if len(batch) == 1:
+                            ticker_data = hist[ticker]
+                        else:
+                            ticker_data = hist[ticker]
+                        
+                        if not ticker_data.empty and not ticker_data.isna().all().all():
+                            all_ticker_data[ticker] = ticker_data
+                    except (KeyError, AttributeError):
+                        print(f"No data for {ticker}")
+                
+                print(f"✓ Batch {batch_num} completed")
+            else:
+                print(f"✗ Batch {batch_num} returned empty data")
+                
+        except Exception as e:
+            print(f"✗ Batch {batch_num} failed: {e}")
+            # 실패한 배치는 개별 처리
+            for ticker in batch:
+                try:
+                    single_hist = yf.download(ticker, start=start_dt, end=end_dt, progress=False)
+                    if not single_hist.empty:
+                        all_ticker_data[ticker] = single_hist
+                        print(f"Individual download success: {ticker}")
+                except:
+                    print(f"Failed to download {ticker}")
+        
+        time.sleep(1)
+    
+    # 모든 ticker 데이터를 멀티인덱스 DataFrame으로 합치기
+    if all_ticker_data:
+        print(f"Combining data for {len(all_ticker_data)} tickers...")
+        
+        # 멀티인덱스 DataFrame 생성
+        combined_data = pd.concat(all_ticker_data, axis=1)
+        
+        # 컬럼 순서 정리 (Price 기준으로)
+        combined_data.columns.names = ['Ticker', 'Price']
+        
+        print(f"Final data shape: {combined_data.shape}")
+        print(f"Columns: {combined_data.columns.get_level_values(1).unique().tolist()}")
+        
+        return combined_data
+    else:
+        print("No data downloaded")
+        return pd.DataFrame()
