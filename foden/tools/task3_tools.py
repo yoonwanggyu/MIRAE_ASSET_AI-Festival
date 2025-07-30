@@ -18,7 +18,7 @@ def moving_average(df: pd.DataFrame, window: int, status : str = 'mean') -> pd.D
 
 def calc_rsi_df(data: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     """
-    한 종목씩 RSI 구하고 합치는 함수
+    RSI Helper 함수 : 한 종목씩 RSI 구하고 합치는 함수
     """
     def rsi_one(series: pd.Series) -> pd.Series:
         delta = series.diff()
@@ -31,9 +31,44 @@ def calc_rsi_df(data: pd.DataFrame, period: int = 14) -> pd.DataFrame:
         return rsi
     return data.apply(rsi_one, axis=0)
 
+@tool("rsi", description="특정 날짜에 여러 종목의 RSI 값을 계산해, 과매수/과매도 조건에 맞는 종목을 필터링합니다.")
 def rsi(data: pd.DataFrame, target_date, threshold, operator) -> Dict[str, float]:
     """
-    RSI 값 비교 후 질문에 대한 정답 내뱉는 함수
+    [RSI 기준 종목 필터링 함수]
+    여러 종목의 주가 데이터(DataFrame)에서 특정 날짜의 RSI(상대강도지수)를 계산한 뒤, 
+    threshold(임계값)과 operator 조건(>=, <= 등)에 따라 조건을 만족하는 종목만 반환합니다.
+    
+    Args:
+        data (pd.DataFrame): 
+            - index: 일자 (str 또는 Timestamp)
+            - columns: 종목(티커 또는 종목명)
+            - 각 셀: 종가 또는 원하는 가격 시계열
+            - 예시:
+                index        005930.KS   035720.KQ
+                2025-01-01   65200       93400
+                ...
+        target_date (str): 
+            - 조회할 날짜 (YYYY-MM-DD 형식, DataFrame index와 일치해야 함)
+        threshold (float): 
+            - RSI 임계값 (예: 80, 30 등)
+            - 과매수(>=80), 과매도(<=30) 탐지에 사용
+        operator (str): 
+            - 조건 부등호 ('>=' 또는 '<=')
+            - '>='이면 threshold 이상(과매수 등), '<='이면 이하(과매도 등)
+        
+    Returns:
+        Dict[str, float]: 
+            - 조건을 만족하는 {티커: RSI값} 딕셔너리
+            - 예: {'005930.KS': 83.2, '035720.KQ': 81.1}
+            - 해당 날짜 index가 없으면 "날짜 없음" 문자열 반환
+    
+    Note:
+        - RSI는 0~100 구간으로, 70 이상(과매수), 30 이하(과매도)로 주로 활용됩니다.
+        - DataFrame에 해당 날짜 index가 없는 경우 안내 메시지를 반환합니다.
+
+    예시 사용:
+        >>> result = rsi(df, target_date="2025-01-10", threshold=80, operator=">=")
+        >>> print(result)  # {'005930.KS': 82.6, ...}
     """
     rsi_df = calc_rsi_df(data)
 

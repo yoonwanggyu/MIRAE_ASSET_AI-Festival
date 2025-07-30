@@ -6,11 +6,47 @@ from langchain.tools import tool
 from utils import *
 from data_fetcher import *
     
-def answer_stock_query(ticker, target_date, field):
+field_kor_to_eng = {
+    "시가": "Open",
+    "고가": "High",
+    "저가": "Low",
+    "종가": "Close",
+    "등락률": "change_rate",
+    "거래량": "Volume"
+}
+
+@tool("answer_stock_query", description="특정 날짜에 특정 종목의 종가, 시가, 고가, 저가, 등락률 계산")
+def answer_stock_query(stock: str, target_date: str, field: str):
     """
-    특정 날짜/종목의
-    종가,시가,고가,등락률 계산
+    특정 종목(stock)의 특정 날짜(target_date)의 Open/Close/Low/High/change_rate(field)를 반환합니다.
+
+    Args:
+        stock (str): 종목명, 예시 '한양증권'
+        target_date (str): 날짜, 예시 '2025-03-12' (YYYY-MM-DD 형식)
+        field (str): 조회할 항목. 아래 값 중 하나여야 합니다.
+            - "Open"  : 시가
+            - "High"  : 고가
+            - "Low"   : 저가
+            - "Close" : 종가
+            - "change_rate" : 등락률(전일 종가 대비 등락률, %)
+            - "Volumne" : 거래량
+
+    Returns:
+        str: 해당 날짜와 필드에 대한 값. 예를 들어,
+            - "[2025-03-12] 종가: 13,800원"
+            - "[2025-03-12] 시가: 14,000원"
+            - "[2025-03-12] 등락률: -1.65%"
+
+    예시 질문:
+    - "KOSPI에서 롯데지주의 2024-07-05 종가는?"
+    - "삼영엠텍의 2025-05-15 등락률은?"
+    - "한네트의 2024-11-20 시가는?"
+    - "도화엔지니어링의 2025-06-25 고가는?"
     """
+
+    field = field_kor_to_eng.get(field, field)
+    ticker = name_to_ticker(stock)
+
     tgt_date = datetime.strptime(target_date, "%Y-%m-%d")
     start_dt = tgt_date - timedelta(days=7) if field == 'change_rate' else tgt_date
     end_dt = tgt_date + timedelta(days=1)
@@ -43,16 +79,30 @@ def answer_stock_query(ticker, target_date, field):
     result = data.loc[target_date, field]
     return f"[{target_date}] {label}: {int(result):,}원"
 
-def answer_market_index(market, target_date):
+@tool("answer_market_index", description="특정 날짜의 KOSPI 또는 KOSDAQ 지수(종가) 조회")
+def answer_market_index(target_date:str, market:str):
     """
-    코스피/코스닥 지수 계산
+    특정 날짜(target_date)의 KOSPI 또는 KOSDAQ 지수(종가)를 반환합니다.
+
+    Args:
+        market (str): 시장 이름. 'KOSPI' 또는 'KOSDAQ'만 입력 가능합니다.
+        target_date (str): 날짜, 예시 '2025-03-12' (YYYY-MM-DD 형식)
+
+    Returns:
+        str: 해당 날짜와 시장의 지수 종가. 예를 들어,
+            - "[2025-03-12] KOSPI 지수: 3,025.45"
+            - "[2025-03-12] KOSDAQ 지수: 1,012.18"
+        데이터가 없으면 오류 메시지를 반환합니다.
+
+    예시 질문:
+    - "2025-06-26 KOSPI 지수는?"
+    - "2025-06-11 KOSDAQ 지수는?"
     """
     tgt_date = datetime.strptime(target_date, "%Y-%m-%d")
     end_dt = tgt_date + timedelta(days=1)
 
     ticker = "^KS11" if market == 'KOSPI' else "^KQ11"
     data = get_stock_data(ticker, tgt_date, end_dt, interval="1d")
-    print(data)
     
     data.index = data.index.strftime("%Y-%m-%d")
     
@@ -62,12 +112,37 @@ def answer_market_index(market, target_date):
     close = float(data.loc[target_date, 'Close'])
     return f"[{target_date}] {market} 지수: {close:.2f}"
 
-def answer_market_ranking(tickers, target_date, field, top_n, reasoning, operator):
+@tool("answer_market_ranking", description="특정 날짜의 시장 내 종가/거래량/등락률 상위 또는 하위 종목 순위 조회")
+def answer_market_ranking(market:str, target_date:str, field:str, top_n:int, reasoning:str, operator:str):
     """
-    코스피/코스닥에서 가장 비싼(종가) 종목 3개?
-    코스피/코스닥에서 거래량이 가장 많은 종목 3개?
-    코스피/코스닥에서 하락률(종가)이 가장 높은 종목 3개?
+    특정 날짜의 KOSPI/KOSDAQ 내에서 종가, 거래량, 등락률 등 기준으로 상위/하위 N개 종목을 순위별로 반환합니다.
+
+    Args:
+        market (str): 시장, 예시 'KOSPI', 'KOSDA'
+        target_date (str): 날짜, 예시 '2025-03-12'
+        field (str): 순위 기준 필드. 아래 값 중 하나여야 합니다.
+            - "Open"  : 시가
+            - "High"  : 고가
+            - "Low"   : 저가
+            - "Close" : 종가
+            - "change_rate" : 등락률(전일 종가 대비 등락률, %)
+            - "Volumne" : 거래량
+        top_n (int): 상위/하위 종목 개수 (예: 3)
+        reasoning (str, optional): 오름차순/내림차순 여부 추론용 질의 설명(예: "하략률 높은", "가장 비싼","많은" 등)
+        operator (str, optional): 정렬방향, '>', '>=', '<', '<=', 'rank', 'max', 'min', 'compare', 'percent', null 등
+
+    Returns:
+        list: [순위별 종목명(티커): 값+단위] 형태의 문자열 리스트  
+        예: ["삼성전자 (005930.KS): 71,800원", "카카오 (035720.KQ): 38,500원", ...]
+        데이터 없거나 비거래일 등 예외는 오류 메시지(str)로 반환
+
+    예시 질문:
+    - "KOSPI/KOSDAQ에서 가장 비싼(종가) 종목 3개?"
+    - "KOSPI/KOSDAQ에서 거래량이 가장 많은 종목 3개?"
+    - "KOSPI/KOSDAQ에서 하락률(종가)이 가장 높은 종목 3개?"
     """
+    field = field_kor_to_eng.get(field, field)
+    tickers = get_tickers(market)
     tgt_date = datetime.strptime(target_date, "%Y-%m-%d")
     start_dt = tgt_date - timedelta(days=7) if field == 'change_rate' else tgt_date
     end_dt = tgt_date + timedelta(days=1)
@@ -132,12 +207,37 @@ def answer_market_ranking(tickers, target_date, field, top_n, reasoning, operato
         result_list.append(f"{stock_name} ({t}): {round(v,2):,}{unit}")
     return result_list
     
-def answer_stock_compare(stock_name1, stock_name2, target_date, field):
+@tool("answer_stock_compare", description="특정 날짜에 두 종목의 종가, 거래량, 시가총액, 등락률을 비교해 더 큰 종목을 반환")
+def answer_stock_compare(stock_name1:str, stock_name2:str, target_date:str, field:str):
     """
-    2024-11-06에 현대차과 NAVER 중 시가총액/종가/거래량/등락률이 더 큰 종목은?
+    특정 날짜(target_date)에 두 종목(stock_name1, stock_name2)의 종가/거래량/시가총액/등락률을 비교하여 더 큰 값을 가진 종목을 반환합니다.
+
+    Args:
+        stock_name1 (str): 첫 번째 종목명 (예: '현대차')
+        stock_name2 (str): 두 번째 종목명 (예: 'NAVER')
+        target_date (str): 날짜, 예시 '2024-11-06' (YYYY-MM-DD 형식)
+        field (str): 비교 항목. 아래 값 중 하나여야 합니다.
+            - "Open"  : 시가
+            - "High"  : 고가
+            - "Low"   : 저가
+            - "Close" : 종가
+            - "market_cap" : 시가총액
+            - "change_rate" : 등락률(전일 종가 대비 등락률, %)
+            - "Volumne" : 거래량
+
+    Returns:
+        str: "[날짜]에 [더 큰 종목명](값) > [작은 종목명](값)" 형식의 비교 결과 문자열  
+        예: "2024-11-06에 현대차(199,000원) > NAVER(179,500원)"
+        - 데이터가 없으면 "데이터 없음" 메시지 반환
+
+    예시 질문:
+    - "2025-04-07에 카카오과 현대차 중 종가이 더 높은 종목은?"
+    - "2025-02-28에 현대차과 삼성SDI 중 등락률이 더 높은 종목은?"
+    - "2024-11-06에 현대차과 NAVER 중 시가총액이 더 큰 종목은?"
     """
-    ticker1 = name_to_ticker[stock_name1]
-    ticker2 = name_to_ticker[stock_name2]
+    field = field_kor_to_eng.get(field, field)
+    ticker1 = name_to_ticker(stock_name1)
+    ticker2 = name_to_ticker(stock_name2)
     
     tgt_date = datetime.strptime(target_date, "%Y-%m-%d")
     start_dt = tgt_date - timedelta(days=7) if field == 'change_rate' else tgt_date
@@ -197,14 +297,35 @@ def answer_stock_compare(stock_name1, stock_name2, target_date, field):
     
     return f"{target_date}에 {max_name}({val:,.2f}{unit}) > {other_name}({other_val:,.2f}{unit})"
 
-def answer_stock_ranking(stock_name, target_date, field):
+@tool("answer_stock_ranking", description="특정 날짜에 특정 종목의 거래량(또는 종가 등) 시장 내 순위를 반환")
+def answer_stock_ranking(stock_name:str, target_date:str, field:str):
     """
-    2024-12-19에 셀트리온의 거래량 순위는?
+    특정 날짜(target_date)에 특정 종목(stock_name)의 거래량, 종가 등 기준으로 코스피/코스닥 전체 시장 내 순위를 반환합니다.
+
+    Args:
+        stock_name (str): 종목명, (예: '현대차')
+        target_date (str): 날짜, 예시 '2024-11-06' (YYYY-MM-DD 형식)
+        field (str): 순위 기준. 아래 값 중 하나여야 합니다.
+            - "Open"  : 시가
+            - "High"  : 고가
+            - "Low"   : 저가
+            - "Close" : 종가
+            - "market_cap" : 시가총액
+            - "change_rate" : 등락률(전일 종가 대비 등락률, %)
+            - "Volumne" : 거래량
+    Returns:
+        str: "[날짜] [종목명](티커)의 [field] 순위: N위 / 전체 (값)" 형식의 문자열
+        예: "2024-12-19 셀트리온(068270.KS)의 거래량 순위: 15위 / 1,850종목 (거래량 105,000주)"
+        데이터 없으면 오류 메시지(str)로 반환
+    
+    예시 질문:
+    - "2024-07-04에 카카오의 거래량 순위는?"
     """
+    field = field_kor_to_eng.get(field, field)
     tgt_date = datetime.strptime(target_date, "%Y-%m-%d")
     end_dt = tgt_date + timedelta(days=1)
     
-    target_ticker = name_to_ticker[stock_name]
+    target_ticker = name_to_ticker(stock_name)
 
     # 코스피와 코스닥 전체 종목 가져오기
     kospi_df = market_list[market_list['market'] == 'KOSPI']
@@ -241,17 +362,32 @@ def answer_stock_ranking(stock_name, target_date, field):
     except KeyError:
         return f"{target_date} {stock_name}의 거래량 데이터가 없습니다."
 
-def answer_market_stock_compare(stock_name, target_date):
+@tool("answer_market_stock_compare", description="특정 날짜에 특정 종목의 등락률이 시장(코스피/코스닥) 평균 등락률보다 높은지 비교")
+def answer_market_stock_compare(stock_name:str, target_date:str):
     """
-    2024-09-08에 삼성바이오로직스의 등락률이 시장 평균보다 높은가?
+    특정 날짜(target_date)에 특정 종목(stock_name)의 등락률이 해당 종목이 속한 시장(KOSPI/KOSDAQ) 평균 등락률보다 높은지 여부를 판정하여 반환합니다.
+
+    Args:
+        stock_name (str): 종목명 (예: '삼성바이오로직스')
+        target_date (str): 날짜 (예: '2024-09-08', YYYY-MM-DD 형식)
+
+    Returns:
+        str: "예 (+등락률% > 시장평균 +등락률%)" 또는  
+             "아니오 (+등락률% < 시장평균 +등락률%)"  
+             (소수점 두 자리, 부호 표기, 값 포함)
+        - 데이터가 없으면 오류 메시지 반환  
+          (예: "월요일 (삼성바이오로직스 등락률 비교 데이터 없음(공휴일/비거래일 등))")
+
+    예시 질문:
+    - "2024-09-08에 삼성바이오로직스의 등락률이 시장 평균보다 높은가?"
     """
-    ticker = name_to_ticker[stock_name]
-    market = name_to_market[stock_name]
+    field = field_kor_to_eng.get(field, field)
+    ticker = name_to_ticker(stock_name)
+    market = name_to_market(stock_name)
     tgt_date = datetime.strptime(target_date, "%Y-%m-%d")
     start_dt = tgt_date - timedelta(days=7)
     end_dt = tgt_date + timedelta(days=1)
 
-    # 1. 시장 전체 티커 추출
     market_df = market_list[market_list['market'] == market]
     if market == "KOSPI":
         tickers = [f"{str(row['code']).zfill(6)}.KS" for _, row in market_df.iterrows()]
@@ -260,7 +396,6 @@ def answer_market_stock_compare(stock_name, target_date):
     else:
         return "지원하지 않는 시장입니다."
 
-    # 2. 데이터 다운로드
     try:
         data = download_in_batches(tickers, start_dt, end_dt, batch_size=200)
         price_df = data.xs('Close', level='Price', axis=1)
@@ -279,30 +414,40 @@ def answer_market_stock_compare(stock_name, target_date):
             return f"{target_date} {stock_name} 등락률 계산 불가"
         stock_chgrate = ((now - prev) / prev) * 100
 
-        # 시장 전체 평균 등락률
         all_now = price_df.loc[target_date]
         all_prev = price_df.loc[prev_date]
         all_rate = ((all_now - all_prev) / all_prev * 100).dropna()
         market_avg = all_rate.mean()
 
-        # 소수점 두 자리 반올림 및 부호 표기
         def fmt(num): return f"{num:+.2f}%"
         s_val = fmt(stock_chgrate)
         m_val = fmt(market_avg)
 
-        # 예/아니오 판정
         if stock_chgrate > market_avg:
             return f"예 ({s_val} > 시장평균 {m_val})"
         else:
             return f"아니오 ({s_val} < 시장평균 {m_val})"
     except Exception as e:
         return f"에러: {e}"
+
+@tool("answer_market_ratio", description="특정 종목의 거래량이 전체 시장 거래량에서 차지하는 비중(%) 계산")
+def answer_market_ratio(stock_name:str, target_date:str):
+    """
+    특정 날짜(target_date)에 특정 종목(stock_name)의 거래량이 전체 시장(코스피+코스닥) 거래량에서 몇 %인지 반환합니다.
+
+    Args:
+        stock_name (str): 종목명 (예: '셀트리온')
+        target_date (str): 날짜 (예: '2024-09-08', YYYY-MM-DD 형식)
+
+    Returns:
+        str: "[날짜] [종목명] 거래량 비중: X.XX% (개별: N / 전체: M)" 형식의 문자열  
+        예: "2025-05-23 셀트리온 거래량 비중: 2.14% (개별: 120,000 / 전체: 5,600,000)"
+        - 데이터가 없거나 휴일 등 예외는 오류 메시지 반환
     
-def answer_market_ratio(stock_name, target_date):
+    예시 질문:
+    - "2025-05-23에 셀트리온의 거래량이 전체 시장 거래량의 몇 %인가?"
     """
-    ex) 2025-05-23에 셀트리온의 거래량이 전체 시장 거래량의 몇 %인가?
-    """
-    ticker = name_to_ticker[stock_name]
+    ticker = name_to_ticker(stock_name)
     tgt_date = datetime.strptime(target_date, "%Y-%m-%d")
     end_dt = tgt_date + timedelta(days=1)
 
@@ -344,10 +489,26 @@ def answer_market_ratio(stock_name, target_date):
     except Exception as e:
         return f"에러: {e}"
     
-def answer_market_compare(target_date,field):
+@tool("answer_market_compare", description="특정 날짜에 KOSPI와 KOSDAQ 지수(또는 상승률)를 비교해 더 높은 시장을 반환")
+def answer_market_compare(target_date:str,field:str):
     """
-    2025-06-19에 KOSPI와 KOSDAQ 중 더 높은 지수는?
-    2025-05-06에 KOSPI와 KOSDAQ 중 전일 대비 상승률이 더 높은 지수는?
+    특정 날짜(target_date)에 KOSPI와 KOSDAQ의 지수(종가) 또는 상승률(change_rate)을 비교해 더 높은 시장명을 반환합니다.
+
+    Args:
+        target_date (str): 날짜 (예: '2025-06-19', 'YYYY-MM-DD' 형식)
+        field (str): 비교 항목. 아래 값 중 하나여야 합니다.
+            - "Close": 종가(지수)
+            - "change_rate" : 등락률(전일 종가 대비 등락률, %)
+
+    Returns:
+        str: "[시장명] ([값])" 형식의 비교 결과
+            - field='Close' 예시: "KOSPI (2,860.31)"
+            - field='change_rate' 예시: "KOSDAQ (+1.23%)"
+        데이터 없으면 오류 메시지 반환
+
+    예시 질문:
+    - "2025-06-19에 KOSPI와 KOSDAQ 중 더 높은 지수는?"
+    - "2025-05-06에 KOSPI와 KOSDAQ 중 전일 대비 상승률이 더 높은 지수는?"
     """
     tgt_date = datetime.strptime(target_date, "%Y-%m-%d")
     start_dt = tgt_date - timedelta(days=7) if field == 'change_rate' else tgt_date
@@ -392,63 +553,10 @@ def answer_market_compare(target_date,field):
     else:
         return f"{max_market} ({max_val:,.2f})"
     
-FIELD_FUNC = {
-    "종목조회": answer_stock_query,
-    "시장지수": answer_market_index,
-    "시장랭킹": answer_market_ranking,
-    "종목비교": answer_stock_compare,
-    "종목랭킹": answer_stock_ranking,
-    "시장비교": answer_market_stock_compare,
-    "시장비중": answer_market_ratio,
-}
-
-def asnwer_task1(q:dict):
-    """
-    q : LLM JSON 파싱 결과
-    반환 : task1 질문에 대한 답
-    """
-    
-    tickers  = get_tickers(q) 
-    
-    ques_type = q['type']
-
-    stock = q['stock_name1']
-
-    target_date = q['target_date']
-
-    func = FIELD_FUNC[ques_type]
-
-    field = q['field']
-
-    if ques_type == "종목조회":
-        ticker = name_to_ticker[stock]
-        result = func(ticker, target_date, field)
-        return result
-    
-    if ques_type == "시장지수":
-        market = q['market']
-        result = func(market,target_date)
-        return result
-
-    if ques_type == '시장랭킹':
-        result = func(tickers, target_date, field, q['top_n'], q['reasoning'], q['operator'])
-        return result
-    
-    if ques_type == '종목비교':
-        result = func(stock, q['stock_name2'], target_date, field)
-        return result
-    
-    if ques_type == '종목랭킹':
-        result = func(stock, target_date, field)
-        return result
-    
-    if ques_type == '시장비교':
-        if q['stock_name1'] == None and q['stock_name2'] == None:
-            result = answer_market_compare(target_date,field)
-        else:
-            result = func(stock,target_date)
-        return result
-    
-    if ques_type == '시장비중':
-        result = func(stock, target_date)
-        return result
+task1_tools = [answer_stock_query,
+               answer_market_index,
+               answer_market_ranking,
+               answer_stock_compare,
+               answer_market_stock_compare,
+               answer_market_ratio,
+               answer_market_compare]
