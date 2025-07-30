@@ -113,15 +113,8 @@ async def handle_task4_tools(state: ChatbotState):
     ai_msg = clova.invoke(messages)
     content = ai_msg.content
 
-    # 리디렉션 여부 확인
-    redirect_task = None
-    match = re.search(r"\[redirect:\s*(Task[1-3])\]", content)
-    if match:
-        redirect_task = match.group(1)
-        content = re.sub(r"\[redirect:\s*Task[1-3]\]", "", content).strip()
-
     return ChatbotState(task_response=content,
-                        redirect_task=redirect_task)
+                        messages=[("user", user_query ), ("assistant", content)])
 
 async def agent_answer(state: ChatbotState):
     """

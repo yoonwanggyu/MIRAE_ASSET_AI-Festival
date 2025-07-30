@@ -28,16 +28,7 @@ def create_agent():
     builder.add_edge("task1_tools", "agent_answer")
     builder.add_edge("task2_tools", "agent_answer")
     builder.add_edge("task3_tools", "agent_answer")
-    builder.add_conditional_edges(
-    "task4_tools",
-    lambda state: state["redirect_task"] if state.get("redirect_task") else "__else__",
-    {
-        "Task1": "task1_tools",
-        "Task2": "task2_tools",
-        "Task3": "task3_tools",
-        "__else__": "agent_answer"
-    }
-)
+    builder.add_edge("task4_tools",END)
     builder.add_edge("agent_answer", END)
 
     graph = builder.compile()
