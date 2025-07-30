@@ -1,8 +1,10 @@
 import yfinance as yf, pandas as pd
 from datetime import datetime, timedelta
 import calendar
+from langchain.tools import tool
 
 from utils import *
+from data_fetcher import *
     
 def answer_stock_query(ticker, target_date, field):
     """
@@ -13,10 +15,8 @@ def answer_stock_query(ticker, target_date, field):
     start_dt = tgt_date - timedelta(days=7) if field == 'change_rate' else tgt_date
     end_dt = tgt_date + timedelta(days=1)
     
-    data = yf.download(ticker, start_dt, end_dt, interval="1d", 
-                      progress=False, threads=False, auto_adjust=False)
+    data = get_stock_data(ticker, start_dt, end_dt, interval="1d")
     data.index = data.index.strftime("%Y-%m-%d")  
-    print(data)
     
     if target_date not in data.index:
         return f"{target_date} : 해당 날짜의 데이터가 존재하지 않습니다."
@@ -51,8 +51,7 @@ def answer_market_index(market, target_date):
     end_dt = tgt_date + timedelta(days=1)
 
     ticker = "^KS11" if market == 'KOSPI' else "^KQ11"
-    data = yf.download(ticker, tgt_date, end_dt, interval="1d",
-                progress=False, threads=False, auto_adjust=False)
+    data = get_stock_data(ticker, tgt_date, end_dt, interval="1d")
     print(data)
     
     data.index = data.index.strftime("%Y-%m-%d")
@@ -120,7 +119,6 @@ def answer_market_ranking(tickers, target_date, field, top_n, reasoning, operato
 
     ranked = series.sort_values(ascending=ascending).dropna()
     res = ranked.iloc[:top_n]
-    print(res)
     result_list = []
     for t, v in res.items():
         key = t.split('.')[0] 
@@ -139,18 +137,14 @@ def answer_stock_compare(stock_name1, stock_name2, target_date, field):
     2024-11-06에 현대차과 NAVER 중 시가총액/종가/거래량/등락률이 더 큰 종목은?
     """
     ticker1 = name_to_ticker[stock_name1]
-    print(ticker1)
     ticker2 = name_to_ticker[stock_name2]
-    print(ticker2)
     
     tgt_date = datetime.strptime(target_date, "%Y-%m-%d")
     start_dt = tgt_date - timedelta(days=7) if field == 'change_rate' else tgt_date
     end_dt = tgt_date + timedelta(days=1)
 
-    data = yf.download([ticker1, ticker2], start_dt, end_dt,interval="1d", 
-                       progress=False, threads=False, auto_adjust=False)
+    data = get_stock_data([ticker1, ticker2], start_dt, end_dt,interval="1d")
     data.index = data.index.strftime("%Y-%m-%d")
-    print(data)
     
     results = {}
     for name, ticker in zip([stock_name1, stock_name2], [ticker1, ticker2]):
@@ -361,7 +355,7 @@ def answer_market_compare(target_date,field):
 
     results = {}
     for market, ticker in [("KOSPI", "^KS11"), ("KOSDAQ", "^KQ11")]:
-        data = yf.download(ticker, start_dt, end_dt, interval="1d", progress=False, threads=False, auto_adjust=False)
+        data = get_stock_data(ticker, start_dt, end_dt, interval="1d")
         data.index = data.index.strftime("%Y-%m-%d")
         if target_date not in data.index:
             day_name = calendar.day_name[tgt_date.weekday()]
@@ -408,7 +402,7 @@ FIELD_FUNC = {
     "시장비중": answer_market_ratio,
 }
 
-def res_task1(q:dict):
+def asnwer_task1(q:dict):
     """
     q : LLM JSON 파싱 결과
     반환 : task1 질문에 대한 답
@@ -417,21 +411,14 @@ def res_task1(q:dict):
     tickers  = get_tickers(q) 
     
     ques_type = q['type']
-    print(f"질문 유형 : {ques_type}")
 
     stock = q['stock_name1']
-    print(f"주식명 : {stock}")
-    if q['stock_name2'] != None:
-        print(f"비교 주식명 : {q['stock_name2']}")
 
     target_date = q['target_date']
-    print(f"질문 속 날짜 : {target_date}")
 
     func = FIELD_FUNC[ques_type]
-    print(f"사용할 함수 : {func}")
 
     field = q['field']
-    print(f"계산 목적(field) : {field}")
 
     if ques_type == "종목조회":
         ticker = name_to_ticker[stock]
