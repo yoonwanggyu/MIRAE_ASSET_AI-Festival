@@ -40,7 +40,6 @@ def apply_operator(df, operator, value, min_value=None, max_value=None):
     else:
         return OPS[operator](df, value)
 
-@tool("answer_task2", description="여러 조건(거래량, 등락률, 가격 등)에 따라 주식 종목을 스크리닝합니다. 입력은 아래 스키마에 맞는 dict(JSON)입니다.")
 def answer_task2(q: dict) -> List[str]:
     """
     [주식 조건검색 스크리닝 함수]
