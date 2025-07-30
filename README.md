@@ -72,12 +72,20 @@
 
 ⚙️ **Task Tools**
 - 통합: Langchain Tool 데코레이터를 활용하여 HyperClova X와 연동
-- 구성: 각 Task 특성에 맞는 전용 도구 세트<br>
-  Task 1: 8개 도구<br>
-  Task 2: 1개 도구<br>
-  Task 3: 5개 도구<br>
 - 동작: HyperClova X가 사용자 질문을 분석하여 적합한 도구를 자동 선택 및 실행<br>
-
+- 구성: 각 Task 특성에 맞는 전용 도구 세트<br>
+  ```bash
+  Task 1: 8개 도구
+  answer_stock_query, answer_market_index,answer_market_ranking,answer_stock_compare,answer_market_stock_compare,answer_market_ratio,answer_market_compare
+  ```
+  ```bash
+  Task 2: 1개 도구
+  answer_task2
+  ```
+  ```bash
+  Task 3: 5개 도구  
+  rsi, detect_cross, price_vs_adj_ma, bollinger_bands, get_high_volume_stocks
+  ```
 🔧 **Specialized Technology (Task 5)**
 
 ## 🚀 API 사용법
