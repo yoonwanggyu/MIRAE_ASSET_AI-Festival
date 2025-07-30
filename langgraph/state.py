@@ -7,3 +7,4 @@ class ChatbotState(TypedDict):
     task_response: Annotated[str, "Task_Response"]
     answer: Annotated[str, "Final_Answer"]  
     messages: Annotated[List, add_messages] 
+    api_key: Annotated[str, "API_Key"]

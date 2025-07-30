@@ -4,9 +4,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 from contextlib import asynccontextmanager
+from langchain_naver import ChatClovaX
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # 애플리케이션 로직 및 상태 객체 임포트
-from langgraph.agent_core import app as agent_graph
+from langgraph.agent_core import agent_graph
 from langgraph.state import ChatbotState
 
 # 수정된 Redis 커넥터 함수 임포트
@@ -55,14 +60,16 @@ def health_check():
 async def invoke_agent(
     question: str,
     Authorization: Optional[str] = Header(None),
-    X_NCP_CLOVastudio_REQUEST_ID: Optional[str] = Header(None)
+    X_NCP_CLOVASTUDIO_REQUEST_ID: Optional[str] = Header(None)
 ):
     """
     사용자의 질문을 URL 쿼리 파라미터로 받아 AI 에이전트를 실행하고 답변을 반환합니다.
     """
     try:
-        initial_state = ChatbotState(question=question, messages=[])
+        api_key = Authorization.replace("Bearer ", "") if Authorization else os.getenv("NCP_CLOVASTUDIO_API_KEY")
+        initial_state = ChatbotState(question=question, messages=[], api_key=api_key)
         final_state = await agent_graph.ainvoke(initial_state)
+
         answer = final_state.get("answer", "오류: 답변을 생성하지 못했습니다.")
         return AnswerResponse(answer=answer)
     except Exception as e:

@@ -41,40 +41,88 @@ def fetch_single_stock_data_from_redis(stock_name: str, code: str, market: str, 
         return None
 
         
-def fetch_from_redis(target_date: str) -> pd.DataFrame:
+def fetch_from_redis(target_date: str, end_date: str = None, target_tickers: list = None) -> pd.DataFrame:
     """
-    특정 날짜의 모든 종목 데이터를 Redis에서 가져와 yfinance와 유사한 MultiIndex DataFrame으로 만듭니다.
+    특정 날짜(또는 날짜 구간)의 모든 종목 데이터를 Redis에서 가져와 yfinance와 유사한 MultiIndex DataFrame으로 만듭니다.
     이 함수는 '전체 시장 스캔'이 필요한 경우에만 호출됩니다.
+    
+    Args:
+        target_date: 시작 날짜 (YYYY-MM-DD 형식)
+        end_date: 종료 날짜 (YYYY-MM-DD 형식, None이면 target_date만 조회)
+        target_tickers: 특정 티커만 필터링 (None이면 모든 종목)
     """
     redis_conn = get_redis_connection() # Redis 연결 가져오기
-    if not redis_conn or not is_redis_target_date(target_date):
-        print(f"DEBUG: fetch_from_redis: Skipping as Redis conn is {bool(redis_conn)} or date {target_date} is not target date.")
+    
+    # 날짜 구간 설정
+    if end_date is None:
+        date_range = [target_date]
+    else:
+        date_range = pd.date_range(start=target_date, end=end_date).strftime("%Y-%m-%d").tolist()
+    
+    # 모든 날짜가 Redis 대상인지 확인
+    all_dates_valid = all(is_redis_target_date(date) for date in date_range)
+    if not redis_conn or not all_dates_valid:
+        print(f"DEBUG: fetch_from_redis: Skipping as Redis conn is {bool(redis_conn)} or not all dates are target dates.")
         return pd.DataFrame()
 
-    print(f"DEBUG: fetch_from_redis: Calling get_all_stocks_for_date_from_redis for date: {target_date}")
-    all_stocks_meta = get_all_stocks_for_date_from_redis(target_date)
+    print(f"DEBUG: fetch_from_redis: Fetching data for date range: {date_range[0]} to {date_range[-1]} ({len(date_range)} days)")
+    
+    # 방법 1: 기존 방식으로 각 날짜별로 메타데이터를 가져와서 키 구성
+    all_keys = []
+    
+    print(f"DEBUG: fetch_from_redis: Getting keys using metadata for date range...")
+    
+    # 각 날짜에 대해 메타데이터를 가져와서 키 구성
+    for current_date in date_range:
+        print(f"DEBUG: fetch_from_redis: Processing date: {current_date}")
+        
+        all_stocks_meta = get_all_stocks_for_date_from_redis(current_date)
 
-    if not all_stocks_meta:
-        print(f"DEBUG: fetch_from_redis: No stock metadata found for {target_date}. Returning empty DataFrame.")
+        if not all_stocks_meta:
+            print(f"DEBUG: fetch_from_redis: No stock metadata found for {current_date}. Skipping.")
+            continue
+
+        # 현재 날짜의 모든 키를 수집
+        current_keys = [f"{current_date}:{s['market']}:{s['code']}:{s['name']}" for s in all_stocks_meta]
+        all_keys.extend(current_keys)
+    
+    print(f"DEBUG: fetch_from_redis: Found {len(all_keys)} keys in date range")
+    
+    # 티커 필터링 (필요한 경우)
+    if target_tickers:
+        filtered_keys = []
+        for key in all_keys:
+            try:
+                _, market, code, name = key.split(":", 3)
+                suffix = ".KS" if market == "KOSPI" else ".KQ"
+                ticker = f"{code}{suffix}"
+                if ticker in target_tickers:
+                    filtered_keys.append(key)
+            except ValueError:
+                continue
+        all_keys = filtered_keys
+        print(f"DEBUG: fetch_from_redis: Filtered to {len(all_keys)} keys for target tickers")
+    
+    if not all_keys:
+        print(f"DEBUG: fetch_from_redis: No keys found after filtering. Returning empty DataFrame.")
         return pd.DataFrame()
-
-    # Redis 파이프라인을 사용하여 한 번에 모든 데이터를 효율적으로 가져옵니다.
+    
+    # 모든 키를 한 번의 파이프라인으로 가져오기
+    print(f"DEBUG: fetch_from_redis: Attempting to fetch {len(all_keys)} keys using single pipeline.")
     pipe = redis_conn.pipeline()
-    keys_to_fetch = [f"{target_date}:{s['market']}:{s['code']}:{s['name']}" for s in all_stocks_meta]
-    print(f"DEBUG: fetch_from_redis: Attempting to fetch {len(keys_to_fetch)} keys using pipeline.")
-    for key in keys_to_fetch:
+    for key in all_keys:
         pipe.get(key)
 
     redis_results = pipe.execute()
-    print(f"DEBUG: fetch_from_redis: Pipeline executed. Got {len(redis_results)} results.")
+    print(f"DEBUG: fetch_from_redis: Single pipeline executed. Got {len(redis_results)} results.")
 
     all_data = []
-    for i, (key, result_json) in enumerate(zip(keys_to_fetch, redis_results)):
+    for i, (key, result_json) in enumerate(zip(all_keys, redis_results)):
         if result_json:
             try:
                 data = json.loads(result_json)
-                _, market, code, name = key.split(":", 3) # 키는 이미 디코딩된 문자열 (decode_responses=True)
-                data['Date'] = pd.to_datetime(target_date)
+                current_date, market, code, name = key.split(":", 3) # 키는 이미 디코딩된 문자열 (decode_responses=True)
+                data['Date'] = pd.to_datetime(current_date)
                 suffix = ".KS" if market == "KOSPI" else ".KQ"
                 data['Ticker'] = f"{code}{suffix}"
                 all_data.append(data)
@@ -84,7 +132,6 @@ def fetch_from_redis(target_date: str) -> pd.DataFrame:
         else:
             # print(f"DEBUG: fetch_from_redis: No data found for key: {key} (result_json was None/empty)")
             pass
-
 
     if not all_data:
         print(f"DEBUG: fetch_from_redis: 'all_data' list is empty after processing results. Returning empty DataFrame.")
@@ -128,16 +175,13 @@ def get_historical_data(tickers: list, start_date: str, end_date: str) -> pd.Dat
 
     if is_start_redis and is_end_redis:
         print(f"INFO: Redis에서 기간 데이터를 조회합니다. ({start_date} ~ {end_date})")
-        date_range = pd.date_range(start=start_date, end=end_date)
-        all_dfs = [fetch_from_redis(date.strftime("%Y-%m-%d")) for date in date_range]
+        # 수정된 fetch_from_redis 함수를 사용하여 한 번에 구간 데이터를 가져옴 (티커 필터링 포함)
+        combined_df = fetch_from_redis(start_date, end_date, tickers)
         
-        valid_dfs = [df for df in all_dfs if not df.empty]
-        if not valid_dfs: return pd.DataFrame()
+        if combined_df.empty:
+            return pd.DataFrame()
             
-        combined_df = pd.concat(valid_dfs)
-        # 요청된 티커만 필터링
-        existing_tickers = [t for t in tickers if t in combined_df.columns.get_level_values(0)]
-        return combined_df[existing_tickers] if existing_tickers else pd.DataFrame()
+        return combined_df
     else:
         # 기간이 걸쳐있거나, 모두 yfinance 대상인 경우 yfinance 사용
         return fetch_from_yfinance(tickers, start_date, end_date)

@@ -46,7 +46,7 @@ def apply_operator(df, operator, value, min_value=None, max_value=None):
             raise ValueError(f"Operator '{operator}' requires a 'value'.")
         return OPS[operator](series, value)
 
-@tool("answer_task2", description="여러 조건(거래량, 등락률, 가격 등)에 따라 주식 종목을 스크리닝합니다. 입력은 아래 스키마에 맞는 dict(JSON)입니다.")
+# @tool("answer_task2", description="여러 조건(거래량, 등락률, 가격 등)에 따라 주식 종목을 스크리닝합니다. 입력은 아래 스키마에 맞는 dict(JSON)입니다.")
 def answer_task2(q: dict) -> List[str]:
     """
     [주식 조건검색 스크리닝 함수]
@@ -146,7 +146,7 @@ def answer_task2(q: dict) -> List[str]:
                 return {"error": f"조건 {i+1}에 필수 필드(field, operator)가 누락되었습니다."}
 
             # 계산에 필요한 일 수 가져오기
-            required_days = DATE_RANGE_DAYS.get(field, 1)
+            required_days = DATE_RANGE.get(field, 1)
 
             # 질문에 있는 날짜
             tgt_date_dt = datetime.strptime(target_date_str, "%Y-%m-%d")

@@ -287,25 +287,66 @@ def get_all_stocks_for_date_from_redis(target_date: str):
     return stock_list
 
 # --- 통합 유틸리티 함수 (get_tickers는 그대로 유지) ---
-def get_tickers(market: str, target_date: str):
+def get_tickers(market: str, target_date: str, end_date: str = None):
     """
     날짜를 기준으로 데이터 소스를 선택하여 특정 시장의 모든 티커를 반환합니다.
+    
+    Args:
+        market (str): 시장 구분 ("KOSPI", "KOSDAQ", "ALL")
+        target_date (str): 시작 날짜 (YYYY-MM-DD)
+        end_date (str, optional): 종료 날짜 (YYYY-MM-DD). None이면 target_date만 사용
     """
-    print(f"DEBUG: get_tickers called with market='{market}', target_date='{target_date}'.")
-    if is_redis_target_date(target_date):
-        all_stocks = get_all_stocks_for_date_from_redis(target_date)
-        tickers = []
-        target_markets = [m.upper() for m in (["KOSPI", "KOSDAQ"] if market.upper() == "ALL" else [market])]
-        print(f"DEBUG: get_tickers: Filtering {len(all_stocks)} stocks for target markets: {target_markets}.")
-        for stock in all_stocks:
-            if stock['market'].upper() in target_markets:
-                suffix = ".KS" if stock['market'].upper() == "KOSPI" else ".KQ"
-                tickers.append(f"{stock['code']}{suffix}")
-        print(f"DEBUG: get_tickers: Returning {len(tickers)} tickers from Redis for market '{market}'.")
+    print(f"DEBUG: get_tickers called with market='{market}', target_date='{target_date}', end_date='{end_date}'.")
+    
+    # 기간이 지정된 경우 (end_date가 제공된 경우)
+    if end_date:
+        print(f"DEBUG: get_tickers: Period mode - from {target_date} to {end_date}")
+        
+        # 기간 내 모든 날짜에 대해 티커를 수집
+        all_tickers = set()
+        current_date = datetime.strptime(target_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+        
+        while current_date <= end_dt:
+            current_date_str = current_date.strftime("%Y-%m-%d")
+            
+            if is_redis_target_date(current_date_str):
+                # Redis에서 해당 날짜의 티커 가져오기
+                all_stocks = get_all_stocks_for_date_from_redis(current_date_str)
+                target_markets = [m.upper() for m in (["KOSPI", "KOSDAQ"] if market.upper() == "ALL" else [market])]
+                
+                for stock in all_stocks:
+                    if stock['market'].upper() in target_markets:
+                        suffix = ".KS" if stock['market'].upper() == "KOSPI" else ".KQ"
+                        all_tickers.add(f"{stock['code']}{suffix}")
+            else:
+                # CSV에서 티커 가져오기 (한 번만)
+                if not all_tickers:  # 아직 티커가 없으면 CSV에서 가져오기
+                    csv_tickers = get_tickers_from_csv(market)
+                    all_tickers.update(csv_tickers)
+            
+            current_date += timedelta(days=1)
+        
+        tickers = list(all_tickers)
+        print(f"DEBUG: get_tickers: Period mode - Returning {len(tickers)} unique tickers for period {target_date} to {end_date}")
         return tickers
+    
+    # 단일 날짜 모드 (기존 로직)
     else:
-        print(f"DEBUG: get_tickers: Target date '{target_date}' not within Redis range. Falling back to CSV.")
-        return get_tickers_from_csv(market)
+        if is_redis_target_date(target_date):
+            all_stocks = get_all_stocks_for_date_from_redis(target_date)
+            tickers = []
+            target_markets = [m.upper() for m in (["KOSPI", "KOSDAQ"] if market.upper() == "ALL" else [market])]
+            print(f"DEBUG: get_tickers: Filtering {len(all_stocks)} stocks for target markets: {target_markets}.")
+            for stock in all_stocks:
+                if stock['market'].upper() in target_markets:
+                    suffix = ".KS" if stock['market'].upper() == "KOSPI" else ".KQ"
+                    tickers.append(f"{stock['code']}{suffix}")
+            print(f"DEBUG: get_tickers: Returning {len(tickers)} tickers from Redis for market '{market}'.")
+            return tickers
+        else:
+            print(f"DEBUG: get_tickers: Target date '{target_date}' not within Redis range. Falling back to CSV.")
+            return get_tickers_from_csv(market)
 
 # --- JSON 파싱 함수 ---
 def parse_llm_json(text: str) -> dict:
