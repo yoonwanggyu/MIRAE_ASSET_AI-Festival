@@ -1,4 +1,6 @@
-![header](https://capsule-render.vercel.app/api?type=Waving&color=auto&height=300&fontAlignY=50&fontAlign=50&section=header&text=AgentM%20%3A%20FIN%EB%AC%B8%EC%B2%A0%EC%9D%98%20%EB%B8%94%EB%9E%99%EB%B0%95%EC%8A%A4&fontSize=50)
+<p align="center">
+  <img src="사진/KakaoTalk_Photo_2025-07-31-07-36-41.png" alt="FIN" width="100%""/>
+
 <div align=center>
   
 **FIN문철**은 투자대법관으로서 정확한 주식 정보 조회와 <br>
@@ -62,7 +64,7 @@
 
 ## 🗺️ LangGraph Execution Flow
 <p align="center">
-  <img src="KakaoTalk_Photo_2025-07-31-06-52-44.png" alt="LangGraph flowchart" width="600"/>
+  <img src="사진/KakaoTalk_Photo_2025-07-31-06-52-44.png" alt="LangGraph flowchart" width="600"/>
 </p>
 
 ## 🔄 Flow Details
