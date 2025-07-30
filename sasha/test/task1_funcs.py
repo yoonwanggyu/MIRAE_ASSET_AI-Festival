@@ -1,6 +1,10 @@
+# task1_funcs.py 업데이트 버전
+
 from task1_tools import *
+from task4_tools import *  # Task4 추가
 from typing import Dict, Any
 
+# Task1 Function Definitions
 task1_functions = [
     {
         "name": "get_info_stock",
@@ -115,6 +119,7 @@ task1_functions = [
     }
 ]
 
+# Task1 Python Function Mapping
 task1_py_funcs: Dict[str, Any] = {
     "get_info_stock": get_info_stock,
     "get_top_volume": get_top_volume,
@@ -125,3 +130,6 @@ task1_py_funcs: Dict[str, Any] = {
     "get_rising_falling_counts" : get_rising_falling_counts,
     "count_traded_stocks": count_traded_stocks
 }
+
+# Task4는 별도 파일에서 정의됨 (task4_tools.py)
+# task4_functions와 task4_py_funcs는 task4_tools.py에서 import됨

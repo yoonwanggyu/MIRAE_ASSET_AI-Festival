@@ -61,6 +61,7 @@ def get_info_stock(stock_name: str,date: str,field: Literal["open", "high", "low
     field_disp = field.upper() if field.isascii() else field  # 출력용
     return f"{stock_name}의 {date_std_raw} {field_disp}는 {value_fmt}입니다."
 
+
 def _top_by(date: str, metric: Literal["volume", "gain", "drop"], n: int = 10,reverse=True) -> List[Tuple[str, float]]:
     '''
     거래량‧상승률‧하락률 TOP N 종목 뽑는 함수
@@ -76,7 +77,7 @@ def _top_by(date: str, metric: Literal["volume", "gain", "drop"], n: int = 10,re
     date_std = date_std_raw.split(" ")[0] 
     # krx_codes = stock.get_market_ticker_list(date_std.replace("-", ""))
 
-    df = pd.read_csv("/Users/yoon/MIRAE_ASSET_AI-Festival/krx_tickers.csv",dtype=str)
+    df = pd.read_csv("/mnt/c/Users/rladl/Desktop/Mirae_Agent/MIRAE_ASSET_AI-Festival/sasha/test/krx_tickers_cleaned.csv",dtype=str)
     krx_codes = df['code'].tolist() 
     if not krx_codes:
         raise ValueError(f"{date_std} 기준 상장 종목을 찾을 수 없습니다.")
@@ -136,6 +137,7 @@ def _top_by(date: str, metric: Literal["volume", "gain", "drop"], n: int = 10,re
     return rows[: n]
 
 def get_top_volume(date: str, top_n: int = 1):
+    '''거래량 상위 N종목'''
     rows = _top_by(date, "volume", n=top_n, reverse=True)
     # txt = [f"{i+1}. {nm} - {vol:,}주" for i, (nm, vol) in enumerate(rows)]
     # return f"{date} 거래량 TOP {top_n}:\n" + "\n".join(txt)
@@ -148,6 +150,7 @@ def get_top_volume(date: str, top_n: int = 1):
     return header + "\n".join(lines)
 
 def get_top_gain(date: str, top_n: int = 10):
+    '''상승률 상위 N종목'''
     rows = _top_by(date, "gain", n=top_n, reverse=True)
     # txt = [f"{i+1}. {nm} ▲ {chg:.2f}%" for i, (nm, chg) in enumerate(rows)]
     # return f"{date} 상승률 TOP {top_n}:\n" + "\n".join(txt)
@@ -160,6 +163,7 @@ def get_top_gain(date: str, top_n: int = 10):
     return header + "\n".join(lines)
 
 def get_top_drop(date: str, top_n: int = 10):
+    '''하락률 상위 N종목'''
     rows = _top_by(date, "drop", n=top_n, reverse=False)
     # txt = [f"{i+1}. {nm} ▼ {chg:.2f}%" for i, (nm, chg) in enumerate(rows)]
     # return f"{date} 하락률 TOP {top_n}:\n" + "\n".join(txt)
@@ -170,6 +174,7 @@ def get_top_drop(date: str, top_n: int = 10):
 
     header = f"{date} 하락률 TOP {top_n}:\n"
     return header + "\n".join(lines)
+
 
 def get_daily_change_rate( stock_name: str, date: str):
     """
@@ -236,7 +241,7 @@ def get_top_or_bottom_price_stocks(date: str, market: str,
     # 2) 종목 리스트 로드
     try:
         tickers_df = pd.read_csv(
-            "/Users/yoon/MIRAE_ASSET_AI-Festival/krx_tickers_with_market.csv",
+            "/mnt/c/Users/rladl/Desktop/Mirae_Agent/MIRAE_ASSET_AI-Festival/sasha/test/krx_tickers_cleaned.csv",
             dtype={"code": str}
         )
     except FileNotFoundError:
@@ -322,7 +327,7 @@ def get_rising_falling_counts(date: str, market: str, mode: str) -> str:
     # ---- 종목 리스트 ------------------------------------------------------
     try:
         tickers_df = pd.read_csv(
-            "/Users/yoon/MIRAE_ASSET_AI-Festival/krx_tickers_with_market.csv",
+            "/mnt/c/Users/rladl/Desktop/Mirae_Agent/MIRAE_ASSET_AI-Festival/sasha/test/krx_tickers_cleaned.csv",
             dtype={"code": str}
         )
     except FileNotFoundError:
@@ -418,7 +423,7 @@ def count_traded_stocks(date: str, market: str = "KOSPI") -> str:
 
     # ── 티커 리스트 로드 ─────────────────────────────────
     df_t = pd.read_csv(
-        "/Users/yoon/MIRAE_ASSET_AI-Festival/krx_tickers_with_market.csv",
+        "/mnt/c/Users/rladl/Desktop/Mirae_Agent/MIRAE_ASSET_AI-Festival/sasha/test/krx_tickers_cleaned.csv",
         dtype={"code": str}
     )
     if mkt != "ALL":
