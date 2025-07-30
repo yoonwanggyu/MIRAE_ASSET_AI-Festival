@@ -1,0 +1,3 @@
+redis_cluster:
+  host: "redis"
+  port: 6379
