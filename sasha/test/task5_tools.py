@@ -116,7 +116,7 @@ task5_functions = [
     },
     {
         "name": "format_growth_prompt",
-        "description": "성장성 분석에 필요한 주요 데이터를 LLM 프롬프트용 요약 텍스트로 변환합니다.",
+        "description": "성장성 분석 데이터를 바탕으로 HCX-005 모델을 통해 투자 성장성을 분석하고 결과를 반환합니다.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -147,7 +147,7 @@ task5_functions = [
     },
     {
         "name": "format_financial_safety_prompt",
-        "description": "DART 수집 데이터에서 재무건전성 판단에 필요한 주요 지표를 추출하고, 체계적 분석을 위한 프롬프트를 생성합니다.",
+        "description": "DART 공시 데이터를 바탕으로 HCX-005 모델을 통해 재무건전성을 분석하고 결과를 반환합니다.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -161,7 +161,7 @@ task5_functions = [
     },
     {
         "name": "generate_investment_prompt_summary",
-        "description": "재무건전성과 성장성 분석 결과를 종합하여 최종 투자 판단 프롬프트를 생성합니다.",
+        "description": "재무건전성과 성장성 분석 결과를 종합하여 HCX-005 모델을 통해 최종 투자 판단을 수행하고 결과를 반환합니다.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -170,7 +170,7 @@ task5_functions = [
                     "description": "format_financial_safety_prompt() 결과 (선택사항)"
                 },
                 "growth_summary": {
-                    "type": "string", 
+                    "type": "string",
                     "description": "format_growth_prompt() 결과 (선택사항)"
                 },
                 "ticker": {
@@ -188,6 +188,20 @@ task5_functions = [
             },
             "required": []
         }
+    },
+    {
+        "name": "analyze_investment_comprehensive",
+        "description": "사용자 질문을 받아 종목 추출부터 최종 투자 판단까지 전체 분석 과정을 자동으로 실행하는 통합 함수입니다. 가장 효율적인 분석 방법입니다.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "user_query": {
+                    "type": "string",
+                    "description": "사용자가 입력한 투자 관련 질문 (예: 삼성전자 지금 사도 될까?)"
+                }
+            },
+            "required": ["user_query"]
+        }
     }
 ]
 
@@ -196,7 +210,7 @@ task5_functions = [
 # =============================================================================
 
 
-def get_info_stock(user_query: str, csv_path="/mnt/c/Users/rladl/Desktop/Mirae_Agent/MIRAE_ASSET_AI-Festival/sasha/test/krx_tickers_cleaned.csv"):
+def get_info_stock(user_query: str, csv_path=r"C:\Users\rladl\Desktop\Mirae_Agent\MIRAE_ASSET_AI-Festival\sasha\test\krx_tickers_cleaned.csv"):
     """
     사용자 질문에서 종목명을 추출하고 티커 및 기업코드 반환
     """
@@ -218,7 +232,8 @@ def get_info_stock(user_query: str, csv_path="/mnt/c/Users/rladl/Desktop/Mirae_A
 
     # 티커/기업코드 조회
     row = df.loc[df["name"] == stock_name].iloc[0]
-    ticker = row["code"]
+    ticker_raw = row["code"]
+    ticker = name_to_ticker(ticker_raw)
     corp_code = row["corp_code"]
 
     return {
@@ -347,74 +362,112 @@ def format_growth_prompt(fin_data: Dict[str, Any],
                         income_stmt: Optional[Dict[str, Any]]=None, 
                         news_list: Optional[List[str]]=None,
                         roe=None, 
-                        peg=None) -> str:
+                        peg=None) -> Dict[str, Any]:
     """
-    성장성 분석에 필요한 주요 데이터를 LLM 프롬프트용 요약 텍스트로 변환
-    - fin_data: 시가총액, PER, PBR, EPS, 배당률 등 주요지표 dict
-    - income_stmt: 손익계산서 등 재무 데이터(옵션)
-    - news_list: 관련 뉴스 요약문 리스트(옵션)
+    성장성 분석에 필요한 주요 데이터를 바탕으로 LLM 분석을 실행하고 결과를 반환
     """
-    roe_peg_summary = calculate_roe_peg(fin_data)
+    try:
+        roe_peg_summary = calculate_roe_peg(fin_data)
+        roe = roe_peg_summary.get("ROE", "N/A")
+        peg = roe_peg_summary.get("PEG", "N/A")
 
-    # summary_table에 반영
-    roe = roe_peg_summary.get("ROE", "N/A")
-    peg = roe_peg_summary.get("PEG", "N/A")
-
-    # 주요 수치 지표 요약
-    prompt = []
-    prompt.append(f"\n■ 성장성 주요 지표 요약")
-    
-    info = fin_data.get("info", {})
-    if info.get("currentPrice"): 
-        prompt.append(f"- 현재가: {info['currentPrice']:,.0f}")
-    if info.get("marketCap"): 
-        prompt.append(f"- 시가총액: {info['marketCap']/1e12:.2f}조")
-    if info.get("trailingPE"): 
-        prompt.append(f"- PER: {info['trailingPE']:.2f}")
-    if info.get("priceToBook"): 
-        prompt.append(f"- PBR: {info['priceToBook']:.2f}")
-    if info.get("trailingEps"): 
-        prompt.append(f"- EPS: {info['trailingEps']:,.0f}")
-    if info.get("dividendYield"): 
-        prompt.append(f"- 배당수익률: {info['dividendYield']*100:.2f}%")
-    if info.get("recommendationKey"): 
-        prompt.append(f"- 애널리스트 평균 등급: {info['recommendationKey']}")
-    if info.get("targetMeanPrice"): 
-        prompt.append(f"- 애널리스트 목표가: {info['targetMeanPrice']:,.0f}")
-    
-    # 손익계산서 등 성장 관련 실적
-    if income_stmt:
-        rev = income_stmt.get("매출액") or income_stmt.get("Revenue")
-        op_profit = income_stmt.get("영업이익") or income_stmt.get("Operating Income")
-        net_profit = income_stmt.get("당기순이익") or income_stmt.get("Net Income")
-        year = income_stmt.get("연도", "")
-        if rev or op_profit or net_profit:
-            prompt.append(f"\n■ 최근 재무 성과")
-            if year: prompt.append(f"- 연도: {year}")
-            if rev: prompt.append(f"- 매출액: {rev}")
-            if op_profit: prompt.append(f"- 영업이익: {op_profit}")
-            if net_profit: prompt.append(f"- 순이익: {net_profit}")
+        # 데이터 섹션 구성
+        data_section = []
+        data_section.append("■ 성장성 주요 지표 요약")
         
-    # 관련 뉴스 헤드라인 요약 추가
-    if news_list:
-        prompt.append(f"\n■ 최근 시장 뉴스 요약")
-        for news in news_list[:3]:  # 최대 3개만 예시
-            prompt.append(f"- {news}")
+        info = fin_data.get("info", {})
+        if info.get("currentPrice"): 
+            data_section.append(f"- 현재가: {info['currentPrice']:,.0f}")
+        if info.get("marketCap"): 
+            data_section.append(f"- 시가총액: {info['marketCap']/1e12:.2f}조")
+        if info.get("trailingPE"): 
+            data_section.append(f"- PER: {info['trailingPE']:.2f}")
+        if info.get("priceToBook"): 
+            data_section.append(f"- PBR: {info['priceToBook']:.2f}")
+        if info.get("trailingEps"): 
+            data_section.append(f"- EPS: {info['trailingEps']:,.0f}")
+        if info.get("dividendYield"): 
+            data_section.append(f"- 배당수익률: {info['dividendYield']*100:.2f}%")
+        if info.get("recommendationKey"): 
+            data_section.append(f"- 애널리스트 평균 등급: {info['recommendationKey']}")
+        if info.get("targetMeanPrice"): 
+            data_section.append(f"- 애널리스트 목표가: {info['targetMeanPrice']:,.0f}")
+        
+        data_section.append(f"- ROE(자기자본이익률): {roe}")
+        data_section.append(f"- PEG(성장반영 PER): {peg}")
 
-    if roe:
-        prompt.append(f"- ROE(자기자본이익률): {roe}")
-    if peg is not None:
-        prompt.append(f"- PEG(성장반영 PER): {peg}")
+        # 재무 성과 추가
+        if income_stmt:
+            rev = income_stmt.get("매출액") or income_stmt.get("Revenue")
+            op_profit = income_stmt.get("영업이익") or income_stmt.get("Operating Income")
+            net_profit = income_stmt.get("당기순이익") or income_stmt.get("Net Income")
+            year = income_stmt.get("연도", "")
+            if rev or op_profit or net_profit:
+                data_section.append("\n■ 최근 재무 성과")
+                if year: data_section.append(f"- 연도: {year}")
+                if rev: data_section.append(f"- 매출액: {rev}")
+                if op_profit: data_section.append(f"- 영업이익: {op_profit}")
+                if net_profit: data_section.append(f"- 순이익: {net_profit}")
 
-    # 이론 및 평가 기준 요약 포함
-    prompt.append("\n■ 투자매력 평가기준 안내")
-    prompt.append("- 매출, 이익이 최근 몇 년간 꾸준히 성장했는가?")
-    prompt.append("- ROE 등 수익성 지표가 업계 평균 대비 우수한가?")
-    prompt.append("- PER, PBR 등 밸류에이션이 저평가/고평가 구간인지?")
-    prompt.append("- 애널리스트 목표가·뉴스 등 시장의 기대/우려 요인은?")
-    prompt.append("\n상기 계량적 지표와 기준을 참고해 기업의 성장성과 투자매력도를 논리적으로 종합 판단해줘.")
-    
-    return "\n".join(prompt)
+        # 뉴스 추가
+        if news_list:
+            data_section.append("\n■ 최근 시장 뉴스 요약")
+            for news in news_list[:3]:
+                data_section.append(f"- {news}")
+
+        # LLM 프롬프트 구성
+        analysis_prompt = f"""
+당신은 전문 투자 분석가입니다. 아래 데이터를 바탕으로 해당 기업의 성장성을 분석하고 투자 매력도를 평가해주세요.
+
+{chr(10).join(data_section)}
+
+■ 분석 요청사항:
+1. 밸류에이션 분석: PER, PBR이 업계 대비 저평가/적정/고평가인지 판단
+2. 수익성 분석: ROE, 애널리스트 등급 등을 통한 수익성 평가
+3. 성장성 평가: EPS 성장률, PEG 등을 통한 성장 가능성 분석
+4. 시장 전망: 뉴스와 애널리스트 목표가를 바탕으로 한 시장 기대감 분석
+
+■ 답변 형식:
+- 각 분석 항목별로 구체적인 수치를 제시하며 설명
+- 투자 매력도를 5점 만점으로 평가
+- 투자 시 주의사항이나 리스크 요인 언급
+- 결론적으로 현 시점 투자 추천 여부 명시
+
+위 요구사항에 따라 객관적이고 전문적인 분석 결과를 한국어로 제공해주세요.
+"""
+
+        # HCX API 호출
+        data = {
+            "model": "HCX-005",
+            "messages": [
+                {"role": "system", "content": "당신은 전문 금융 투자 분석가입니다. 주어진 데이터를 바탕으로 정확하고 객관적인 투자 분석을 제공합니다."},
+                {"role": "user", "content": analysis_prompt}
+            ],
+            "temperature": 0.3,
+            "max_tokens": 2000
+        }
+
+        response = requests.post(url, headers=headers, json=data)
+        result = response.json()
+        
+        analysis_result = result.get('result', {}).get('message', {}).get('content', '')
+        
+        return {
+            "status": "success",
+            "analysis_type": "growth_analysis",
+            "analysis_result": analysis_result,
+            "raw_data": data_section,
+            "prompt_used": analysis_prompt
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"성장성 분석 중 오류 발생: {str(e)}"
+        }
+
+
+
 
 # =============================================================================
 # 3. 재무건전성 평가 (DART API) 데이터 수집 & 처리 모듈
@@ -476,83 +529,113 @@ def get_dart_disclosure_data(corp_name: str, corp_code: str,
         }
 
 
-
-def format_financial_safety_prompt(dart_data: Dict[str, Any]) -> str:
+def format_financial_safety_prompt(dart_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    DART financial_summary 데이터 기반으로 주요 계정과 재무비율을 계산해,
-    프롬프트용 요약 텍스트 생성.
-    - dart_data: result["data"]["data"] 구조의 딕셔너리
+    DART 재무 데이터를 바탕으로 LLM 재무건전성 분석을 실행하고 결과를 반환
     """
-    prompt = ["\n■ 재무 건전성 분석 요약"]
     try:
+        data_section = ["■ 재무 건전성 분석 요약"]
+        
         fin_df = dart_data.get("financial_summary", pd.DataFrame())
         if not isinstance(fin_df, pd.DataFrame) or fin_df.empty:
-            prompt.append("- 재무제표 요약 데이터가 없습니다.")
-            return "\n".join(prompt)
+            data_section.append("- 재무제표 요약 데이터가 없습니다.")
+        else:
+            df = fin_df.copy()
+            # 금액을 숫자 타입으로 변환
+            for col in ["thstrm_amount", "frmtrm_amount"]:
+                df[col] = (
+                    df[col]
+                    .astype(str)
+                    .str.replace(",", "")
+                    .replace("", "0")
+                    .astype(float)
+                )
 
-        df = fin_df.copy()
-        # 금액을 숫자(int) 타입으로 변환
-        for col in ["thstrm_amount", "frmtrm_amount"]:
-            df[col] = (
-                df[col]
-                .astype(str)
-                .str.replace(",", "")
-                .replace("", "0")
-                .astype(float)
-            )
+            def get_amt(name):
+                sub = df.loc[df["account_nm"] == name, "thstrm_amount"]
+                return sub.iloc[0] if len(sub) > 0 else None
 
-        def get_amt(name):
-            sub = df.loc[df["account_nm"] == name, "thstrm_amount"]
-            return sub.iloc[0] if len(sub) > 0 else None
+            asset = get_amt("자산총계")
+            debt = get_amt("부채총계")
+            equity = get_amt("자본총계")
+            op_profit = get_amt("영업이익")
+            interest = get_amt("이자비용")
+            net_income = get_amt("당기순이익")
 
-        asset = get_amt("자산총계")
-        debt = get_amt("부채총계")
-        equity = get_amt("자본총계")
-        op_profit = get_amt("영업이익")
-        interest = get_amt("이자비용")
-        net_income = get_amt("당기순이익")
+            # 주요 계정 추가
+            for name, val in [
+                ("자산총계", asset),
+                ("부채총계", debt),
+                ("자본총계", equity),
+                ("영업이익", op_profit),
+                ("이자비용", interest),
+                ("당기순이익", net_income),
+            ]:
+                if val is not None:
+                    data_section.append(f"- {name}: {int(val):,} 원")
 
-        # 주요 계정 원본 출력
-        for name, val in [
-            ("자산총계", asset),
-            ("부채총계", debt),
-            ("자본총계", equity),
-            ("영업이익", op_profit),
-            ("이자비용", interest),
-            ("당기순이익", net_income),
-        ]:
-            if val is not None:
-                prompt.append(f"- {name}: {int(val):,} 원")
+            # 비율 계산 및 추가
+            if asset and debt:
+                cur_asset = get_amt("유동자산")
+                cur_debt = get_amt("유동부채")
+                if cur_asset and cur_debt:
+                    data_section.append(f"- 유동비율: {cur_asset/cur_debt*100:.1f}%")
+            if equity and debt:
+                data_section.append(f"- 부채비율: {debt/equity*100:.1f}%")
+                data_section.append(f"- 차입금의존도: {debt/asset*100:.1f}%")
+            if op_profit and interest and interest != 0:
+                data_section.append(f"- 이자보상배율: {op_profit/interest:.1f}")
 
-        # 비율 계산
-        if asset and debt:
-            cur_asset = get_amt("유동자산")
-            cur_debt = get_amt("유동부채")
-            if cur_asset and cur_debt:
-                prompt.append(f"- 유동비율: {cur_asset/cur_debt*100:.1f}%")
-        if equity and debt:
-            prompt.append(f"- 부채비율: {debt/equity*100:.1f}%")
-            prompt.append(f"- 차입금의존도: {debt/asset*100:.1f}%")
-        if op_profit and interest and interest != 0:
-            prompt.append(f"- 이자보상배율: {op_profit/interest:.1f}")
-        if net_income is not None:
-            ni_sign = "" if net_income >= 0 else "(손실)"
-            prompt.append(f"- 당기순이익: {int(net_income):,} 원 {ni_sign}")
+        # LLM 프롬프트 구성
+        analysis_prompt = f"""
+당신은 전문 재무 분석가입니다. 아래 DART 공시 데이터를 바탕으로 해당 기업의 재무건전성을 종합 평가해주세요.
 
-        # 평가 기준 안내
-        prompt.append("\n■ 재무건전성 평가기준 안내")
-        prompt.append("- 유동비율 100% 이상: 단기 지급능력 양호")
-        prompt.append("- 부채비율 200% 이하: 재무 안정성 확보")
-        prompt.append("- 차입금의존도 30% 이하: 외부 자본 의존 낮음")
-        prompt.append("- 이자보상배율 1 이상: 이자 지급능력 확보")
-        prompt.append("- 당기순손실 지속 시 재무위험 주의")
+{chr(10).join(data_section)}
 
-        prompt.append("\n상기 지표와 기준을 종합해 기업의 재무 건전성을 평가해줘.")
-        return "\n".join(prompt)
+■ 분석 기준 및 요청사항:
+1. 유동성 분석: 유동비율(100% 이상 양호)을 통한 단기 지급능력 평가
+2. 안정성 분석: 부채비율(200% 이하 양호), 차입금의존도(30% 이하 양호) 평가
+3. 수익성 분석: 영업이익, 당기순이익의 흑자/적자 지속성 평가
+4. 이자보상능력: 이자보상배율(1배 이상 양호)을 통한 이자 지급능력 평가
+
+■ 답변 형식:
+- 각 재무비율별로 우수/보통/미흡 등급 제시
+- 재무건전성을 5점 만점으로 종합 평가
+- 투자 시 주의해야 할 재무 리스크 요인 구체적 언급
+- 결론적으로 재무적 관점에서의 투자 안전성 평가
+
+위 요구사항에 따라 객관적이고 전문적인 재무건전성 분석 결과를 한국어로 제공해주세요.
+"""
+
+        # HCX API 호출
+        data = {
+            "model": "HCX-005",
+            "messages": [
+                {"role": "system", "content": "당신은 전문 재무 분석가입니다. DART 공시 데이터를 바탕으로 정확한 재무건전성 분석을 제공합니다."},
+                {"role": "user", "content": analysis_prompt}
+            ],
+            "temperature": 0.3,
+            "max_tokens": 2000
+        }
+
+        response = requests.post(url, headers=headers, json=data)
+        result = response.json()
+        
+        analysis_result = result.get('result', {}).get('message', {}).get('content', '')
+        
+        return {
+            "status": "success",
+            "analysis_type": "safety_analysis",
+            "analysis_result": analysis_result,
+            "raw_data": data_section,
+            "prompt_used": analysis_prompt
+        }
 
     except Exception as e:
-        return f"❌ 오류 발생: {str(e)}"
-
+        return {
+            "status": "error",
+            "message": f"재무건전성 분석 중 오류 발생: {str(e)}"
+        }
 
 
 def generate_investment_prompt_summary(
@@ -561,62 +644,154 @@ def generate_investment_prompt_summary(
     ticker: Optional[str] = None,
     stock_name: Optional[str] = None,
     base_date: Optional[str] = None
-) -> str:
+) -> Dict[str, Any]:
     """
-    최종 투자 판단 프롬프트 요약 생성 (재무건전성, 성장성 요약 결합)
-    - safety_summary: format_financial_safety_prompt() 결과
-    - growth_summary: format_growth_prompt() 결과
-    - ticker / stock_name / base_date: 리포트 메타 정보
+    재무건전성과 성장성 분석 결과를 종합하여 최종 투자 판단을 LLM으로 수행
     """
-    
-    header = f"""[Fin문철 종합 리포트] 📈 종목: {stock_name} ({ticker}) 📅 기준일: {base_date or 'N/A'}\n"""
-    
-    if safety_summary and growth_summary:
-        return header + f"""
-🔍 <1> 재무 건전성 진단 요약:
-{safety_summary}
+    try:
+        # 분석 결과 텍스트 추출
+        safety_text = ""
+        growth_text = ""
+        
+        if isinstance(safety_summary, dict):
+            safety_text = safety_summary.get("analysis_result", str(safety_summary))
+        else:
+            safety_text = str(safety_summary) if safety_summary else ""
+            
+        if isinstance(growth_summary, dict):
+            growth_text = growth_summary.get("analysis_result", str(growth_summary))
+        else:
+            growth_text = str(growth_summary) if growth_summary else ""
 
-🚀 <2> 시장 지표 기반 성장성 분석:
-{growth_summary}
+        # 최종 종합 분석 프롬프트 구성
+        final_prompt = f"""
+[종합 투자 분석] 📈 종목: {stock_name} ({ticker}) 📅 기준일: {base_date or datetime.now().strftime('%Y-%m-%d')}
 
-📌 <AI 종합 판단 요약>
-- 해당 종목은 현재 **재무구조의 안정성**과 **시장지표 상 저평가 여부**를 종합적으로 고려할 때, {"상대적으로 안정된 투자처로 평가됨" if "양호" in safety_summary and "저평가" in growth_summary else "투자 시 주의가 요구됨"}.
-- 단기 수익보다는 중장기적 관점에서 접근하는 것이 바람직함.
+■ 재무건전성 분석 결과:
+{safety_text}
+
+■ 성장성 분석 결과:
+{growth_text}
+
+■ 최종 종합 투자 판단 요청:
+위의 재무건전성과 성장성 분석 결과를 종합하여 다음 사항을 평가해주세요:
+
+1. 투자 매력도 종합 점수 (10점 만점)
+2. 투자 추천 등급 (매수/보유/매도 중 선택)
+3. 예상 목표 주가 및 기대 수익률 제시
+4. 투자 시 주요 리스크 요인 3가지
+5. 투자 적정 기간 (단기/중기/장기) 추천
+
+■ 답변 형식:
+- 각 항목별로 구체적인 근거와 함께 명확한 결론 제시
+- 정량적 지표와 정성적 판단을 균형있게 반영
+- 투자자 유형별(보수적/공격적) 추천사항 구분 제시
+
+전문 투자 분석가로서 객관적이고 실용적인 최종 투자 의견을 한국어로 제공해주세요.
 """
-    
-    elif safety_summary:
-        return header + f"""
-🔍 <1> 재무 건전성 진단 요약:
-{safety_summary}
 
-📌 <AI 종합 판단 요약>
-- 공시 기반 재무구조 평가 결과, 해당 기업은 {"재무적으로 안정된 편" if "양호" in safety_summary or "안정" in safety_summary else "재무 리스크가 존재"}.
-- {"재무구조가 튼튼하여 안정적인 투자 기반이 될 수 있음" if "양호" in safety_summary else "현 시점 투자에는 보수적 접근이 필요함"}.
-"""
-    
-    elif growth_summary:
-        return header + f"""
-🚀 <1> 시장 지표 기반 성장성 분석:
-{growth_summary}
+        # HCX API 호출
+        data = {
+            "model": "HCX-005",
+            "messages": [
+                {"role": "system", "content": "당신은 종합 투자 분석 전문가입니다. 재무건전성과 성장성 분석을 바탕으로 최종 투자 판단을 제공합니다."},
+                {"role": "user", "content": final_prompt}
+            ],
+            "temperature": 0.2,
+            "max_tokens": 3000
+        }
 
-📌 <AI 종합 판단 요약>
-- 시장 데이터에 따르면 해당 종목은 현재 {"PER/PBR 기준 저평가 상태로 보이며" if "저평가" in growth_summary else "고평가 상태로 보이며"}, {"기대 수익 가능성이 존재" if "저평가" in growth_summary else "신중한 접근이 필요"}.
-- {"단기 모멘텀이 강하므로 매수 타이밍 포착이 중요" if "강세" in growth_summary else "시장 흐름 변화에 유의 필요"}.
-"""
+        response = requests.post(url, headers=headers, json=data)
+        result = response.json()
+        
+        final_analysis = result.get('result', {}).get('message', {}).get('content', '')
+        
+        return {
+            "status": "success",
+            "analysis_type": "final_investment_decision",
+            "final_decision": final_analysis,
+            "stock_info": {
+                "stock_name": stock_name,
+                "ticker": ticker,
+                "analysis_date": base_date or datetime.now().strftime('%Y-%m-%d')
+            },
+            "component_analyses": {
+                "safety_analysis": safety_text,
+                "growth_analysis": growth_text
+            },
+            "prompt_used": final_prompt
+        }
 
-    else:
-        return header + """
-⚠️ 데이터 부족
-- 재무건전성 및 성장성에 대한 분석 데이터가 부족하여 투자 판단을 내리기 어려움.
-- 공시 또는 시장 데이터를 확인 후 다시 분석을 요청하세요.
-"""
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"최종 투자 판단 중 오류 발생: {str(e)}"
+        }
 
+
+# 통합 투자 분석 함수 추가
+def analyze_investment_comprehensive(user_query: str) -> Dict[str, Any]:
+    """
+    사용자 질문을 받아 전체 투자 분석 과정을 순차적으로 실행하는 통합 함수
+    """
+    try:
+        # 1. 종목 정보 추출
+        stock_info = get_info_stock(user_query)
+        if "error" in stock_info:
+            return stock_info
+            
+        # 2. Yahoo Finance 데이터 수집
+        yf_result = get_yfinance_data(stock_info["ticker"])
+        if yf_result.get("status") != "success":
+            return {"error": "Yahoo Finance 데이터 수집 실패", "details": yf_result}
+            
+        # 3. DART 데이터 수집
+        dart_result = get_dart_disclosure_data(stock_info["stock_name"], stock_info["corp_code"])
+        if dart_result.get("status") != "success":
+            return {"error": "DART 데이터 수집 실패", "details": dart_result}
+            
+        # 4. 성장성 분석 (LLM 호출 포함)
+        growth_analysis = format_growth_prompt(
+            fin_data=yf_result["data"]["data"],
+            news_list=[item.get("title", "") for item in yf_result["data"]["data"].get("news", [])]
+        )
+        
+        # 5. 재무건전성 분석 (LLM 호출 포함)
+        safety_analysis = format_financial_safety_prompt(dart_result["data"])
+        
+        # 6. 최종 종합 판단 (LLM 호출 포함)
+        final_decision = generate_investment_prompt_summary(
+            safety_summary=safety_analysis,
+            growth_summary=growth_analysis,
+            ticker=stock_info["ticker"],
+            stock_name=stock_info["stock_name"]
+        )
+        
+        return {
+            "status": "success",
+            "stock_info": stock_info,
+            "growth_analysis": growth_analysis,
+            "safety_analysis": safety_analysis,
+            "final_decision": final_decision,
+            "raw_data": {
+                "yahoo_finance": yf_result,
+                "dart_data": dart_result
+            }
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"종합 투자 분석 중 오류 발생: {str(e)}"
+        }
+# 수정된 task5_py_funcs 딕셔너리
 task5_py_funcs = {
     "get_info_stock": get_info_stock,
     "get_yfinance_data": get_yfinance_data,
     "get_dart_disclosure_data": get_dart_disclosure_data,
     "calculate_roe_peg": calculate_roe_peg,
-    "format_growth_prompt": format_growth_prompt,
-    "format_financial_safety_prompt": format_financial_safety_prompt,
-    "generate_investment_prompt_summary": generate_investment_prompt_summary
+    "format_growth_prompt": format_growth_prompt,  
+    "format_financial_safety_prompt": format_financial_safety_prompt, 
+    "generate_investment_prompt_summary": generate_investment_prompt_summary,  
+    "analyze_investment_comprehensive": analyze_investment_comprehensive  
 }
