@@ -3,9 +3,11 @@ import pandas as pd
 import json
 from datetime import datetime, timedelta
 
+
 # Redis 연결 및 유틸리티 함수 임포트
 from redis_connector import get_redis_connection
 redis_conn = get_redis_connection()
+
 from utils import is_redis_target_date, get_all_stocks_for_date_from_redis
 
 
@@ -40,7 +42,7 @@ def fetch_single_stock_data_from_redis(stock_name: str, code: str, market: str, 
         print(f"DEBUG: fetch_single_stock_data_from_redis: Unexpected error during Redis GET for '{redis_key}': {e}")
         return None
 
-        
+
 def fetch_from_redis(target_date: str, end_date: str = None, target_tickers: list = None) -> pd.DataFrame:
     """
     특정 날짜(또는 날짜 구간)의 모든 종목 데이터를 Redis에서 가져와 yfinance와 유사한 MultiIndex DataFrame으로 만듭니다.
@@ -57,7 +59,8 @@ def fetch_from_redis(target_date: str, end_date: str = None, target_tickers: lis
     if end_date is None:
         date_range = [target_date]
     else:
-        date_range = pd.date_range(start=target_date, end=end_date).strftime("%Y-%m-%d").tolist()
+        date_range = [d.strftime("%Y-%m-%d") for d in pd.date_range(start=target_date, end=end_date)]
+
     
     # 모든 날짜가 Redis 대상인지 확인
     all_dates_valid = all(is_redis_target_date(date) for date in date_range)
@@ -66,29 +69,20 @@ def fetch_from_redis(target_date: str, end_date: str = None, target_tickers: lis
         return pd.DataFrame()
 
     print(f"DEBUG: fetch_from_redis: Fetching data for date range: {date_range[0]} to {date_range[-1]} ({len(date_range)} days)")
-    
-    # 방법 1: 기존 방식으로 각 날짜별로 메타데이터를 가져와서 키 구성
+
     all_keys = []
-    
-    print(f"DEBUG: fetch_from_redis: Getting keys using metadata for date range...")
-    
-    # 각 날짜에 대해 메타데이터를 가져와서 키 구성
-    for current_date in date_range:
-        print(f"DEBUG: fetch_from_redis: Processing date: {current_date}")
-        
-        all_stocks_meta = get_all_stocks_for_date_from_redis(current_date)
+    for date in date_range:
+        stocks = get_all_stocks_for_date_from_redis(date)
+        for stock in stocks:
+            code = stock["code"]
+            market = stock["market"]
+            name = stock["name"]
+            key = f"{date}:{market}:{code}:{name}"
+            all_keys.append(key)
 
-        if not all_stocks_meta:
-            print(f"DEBUG: fetch_from_redis: No stock metadata found for {current_date}. Skipping.")
-            continue
+    print(f"DEBUG: fetch_from_redis: Total {len(all_keys)} keys constructed across all dates")
 
-        # 현재 날짜의 모든 키를 수집
-        current_keys = [f"{current_date}:{s['market']}:{s['code']}:{s['name']}" for s in all_stocks_meta]
-        all_keys.extend(current_keys)
     
-    print(f"DEBUG: fetch_from_redis: Found {len(all_keys)} keys in date range")
-    
-    # 티커 필터링 (필요한 경우)
     if target_tickers:
         filtered_keys = []
         for key in all_keys:
@@ -117,11 +111,11 @@ def fetch_from_redis(target_date: str, end_date: str = None, target_tickers: lis
     print(f"DEBUG: fetch_from_redis: Single pipeline executed. Got {len(redis_results)} results.")
 
     all_data = []
-    for i, (key, result_json) in enumerate(zip(all_keys, redis_results)):
+    for key, result_json in zip(all_keys, redis_results):
         if result_json:
             try:
                 data = json.loads(result_json)
-                current_date, market, code, name = key.split(":", 3) # 키는 이미 디코딩된 문자열 (decode_responses=True)
+                current_date, market, code, name = key.split(":", 3)
                 data['Date'] = pd.to_datetime(current_date)
                 suffix = ".KS" if market == "KOSPI" else ".KQ"
                 data['Ticker'] = f"{code}{suffix}"
@@ -129,31 +123,21 @@ def fetch_from_redis(target_date: str, end_date: str = None, target_tickers: lis
             except (json.JSONDecodeError, ValueError) as e:
                 print(f"DEBUG: fetch_from_redis: Error parsing JSON or key for '{key}': {e}. Raw JSON: {result_json}")
                 continue
-        else:
-            # print(f"DEBUG: fetch_from_redis: No data found for key: {key} (result_json was None/empty)")
-            pass
+
 
     if not all_data:
-        print(f"DEBUG: fetch_from_redis: 'all_data' list is empty after processing results. Returning empty DataFrame.")
         return pd.DataFrame()
 
     # DataFrame으로 변환하고 MultiIndex 컬럼으로 재구성 (yfinance 호환성)
     df = pd.DataFrame(all_data)
-    print(f"DEBUG: fetch_from_redis: DataFrame created with {len(df)} rows. Columns: {df.columns.tolist()}")
     df = df.set_index(['Date', 'Ticker'])
-    print(f"DEBUG: fetch_from_redis: Index set to 'Date', 'Ticker'.")
     df_pivoted = df.unstack(level='Ticker')
-    print(f"DEBUG: fetch_from_redis: DataFrame unstacked.")
 
     # DataFrame이 비어있을 수 있으므로 컬럼이 있는지 확인 후 swaplevel 적용
     if not df_pivoted.empty and isinstance(df_pivoted.columns, pd.MultiIndex):
         df_pivoted.columns = df_pivoted.columns.swaplevel(0, 1)
         df_pivoted.sort_index(axis=1, level=0, inplace=True)
-        print(f"DEBUG: fetch_from_redis: Columns swapped and sorted. Final DF shape: {df_pivoted.shape}")
-    elif df_pivoted.empty:
-        print(f"DEBUG: fetch_from_redis: Pivoted DataFrame is empty.")
-    else:
-        print(f"DEBUG: fetch_from_redis: Pivoted DataFrame is not MultiIndex, or is empty.")
+
 
     return df_pivoted
 

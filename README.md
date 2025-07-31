@@ -8,7 +8,7 @@
 
 1️⃣ 이정 : TASK5 내용 써줘.....<br>
 2️⃣ 이정 :표지 사진 넣어줘....<br>
-3️⃣ 하윤 : API 사용법 / 구현 과정 써줘...<br>
+
 </div>
 
 ## 🏆 Competition
@@ -54,10 +54,17 @@
   상태 기반 LLM 프레임워크로, 복잡한 에이전트 워크플로우를 유연하게 설계할 수 있습니다.<br>
   → Agentic RAG 흐름(Task 분기 → Tool 호출 -> 답변 생성)을 구현<br>
 
-- ⚡ **Redis** <br>
+- ⚡ **NCloud Cloud DB for Cache(Redis Cluster)** <br>
   고성능 인메모리 데이터 스토어로, 캐싱과 세션 관리를 담당합니다. <br>
   → yfinance 데이터 (2024.01 ~ 2025.07) 데이터 적재 <br>
   
+- 🚀 **FastAPI**<br>
+Python ASGI 웹 프레임워크 – 타입 힌트 기반 자동 문서화 & 고성능 비동기 처리를 지원합니다.<br>
+→ /agent · /health 엔드포인트 구현, CORS 미들웨어·lifespan 훅으로 Redis 연결·해제 자동 관리
+
+- ☁️ **NCloud IaaS (Ubuntu VM)**<br>
+네이버클라우드 VPC 환경의 가상머신: Public Subnet(공인 IP) + Private Subnet(Redis Cluster) 구성되어 있습니다.<br>
+→ 애플리케이션 서버(uvicorn) 를 IaaS 인스턴스에 배포, VPC 내부에서 Redis Cluster 접속
 - 🐳 **Docker** <br>
   컨테이너화를 통한 일관된 개발 및 배포 환경을 제공합니다.<br>
   → 애플리케이션과 Redis를 컨테이너로 구성하여 환경 독립성과 배포 편의성 확보 <br>
@@ -91,40 +98,27 @@
 🔧 **Specialized Technology (Task 5)**
 
 ## 🚀 API 사용법
-1️⃣ 레포지토리 클론
+**1️⃣ 서버 기동**
 ```bash
-git clone 
-cd your-repo-name
+docker build -t agent-m .
+docker rm -f agent-m
+docker run -d -p 8000:8000 --env-file .env --name agent-m agent-m
 ```
-2️⃣ 필수 라이브러리 설치
+**2️⃣ 헬스 체크**
 ```bash
-pip install -r requirements.txt
+curl http://49.50.128.78:8000/health
 ```
-
-3️⃣ 환경 변수 설정 (.env 파일 생성)<br>
-```bash
-# GPT API 설정
-OPENAI_API_KEY=''
-
-# Neo4J 설정
-NEO4J_URI=''
-DATABASE=''
-AUTH_LINK=''
-
-# Pinecone 설정
-PINECONE_API_KEY=''
-
-# Slack MCP 설정
-SLACK_BOT_TOKEN=''
-SLACK_TEAM_ID=''
+상태 반환 확인
+```
+{"status":"ok"}
 ```
 
-4️⃣ mcp_client.py 실행을 위한 파이썬 경로 설정
+**3️⃣ 질문 호출**
 ```bash
-"command": "본인 로컬 PYTHON 경로"
+curl -G --data-urlencode "question=2025-02-25에 RSI가 30 이하인 종목은?" \ 
+  http://49.50.128.78:8000/agent \
+  -H "Authorization: Bearer $NCP_CLOVASTUDIO_API_KEY" \
+  -H "X-NCP-CLOVASTUDIO-REQUEST-ID: req-001"
 ```
 
-5️⃣ LangGraph 기반 챗봇 로직 실행
-```bash
-python main.py
-```
+## 🏗️ 구현 과정

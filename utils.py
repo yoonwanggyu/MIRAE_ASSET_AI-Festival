@@ -267,10 +267,16 @@ def get_all_stocks_for_date_from_redis(target_date: str):
         print(f"DEBUG: get_all_stocks_for_date_from_redis: Skipping Redis scan. Target date '{target_date}' not in Redis range.")
         return []
     
+    index_key = f"date:{{{target_date}}}"
+    print(f"DEBUG: get_all_stocks_for_date_from_redis: Using index key: '{index_key}'")
+
+    try:
+        keys = redis_conn.smembers(index_key)
+    except Exception as e:
+        print(f"ERROR: get_all_stocks_for_date_from_redis: Failed to retrieve keys from index: {e}")
+        return []
     stock_list = []
-    scan_pattern = f"{target_date}:*:*:*"
-    print(f"DEBUG: get_all_stocks_for_date_from_redis: Scanning Redis with pattern: '{scan_pattern}'")
-    for key_str in redis_conn.scan_iter(scan_pattern):
+    for key_str in keys:
         # print(f"DEBUG: get_all_stocks_for_date_from_redis: Found raw key: '{key_str}'") # 너무 많은 로그로 인해 주석 처리 유지
         try:
             parts = key_str.split(":", 3)

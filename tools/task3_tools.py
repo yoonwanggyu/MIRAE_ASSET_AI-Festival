@@ -82,8 +82,12 @@ def rsi(target_date:str, threshold:int, operator:str) -> Dict[str, float]:
     if isinstance(data.columns, pd.MultiIndex) and 'Price' in data.columns.get_level_values(0):
         data_need_col = data.xs("Adj Close", level="Price", axis=1)
     else:
-        # Redis 데이터 구조: 직접 Close 컬럼 사용
-        data_need_col = data.xs("Close", level=0, axis=1)
+        # Redis 데이터 구조: (Ticker, Field) 형태이므로 level=1로 접근
+        try:
+            data_need_col = data.xs("Close", level=1, axis=1)
+        except KeyError:
+            # level=1에서 찾을 수 없으면 level=0에서 시도
+            data_need_col = data.xs("Close", level=0, axis=1)
 
     rsi_df = calc_rsi_df(data_need_col)
     rsi_df.index = rsi_df.index.strftime("%Y-%m-%d")  
@@ -203,7 +207,7 @@ def detect_cross(stock_name:str, start_date:str, end_date:str, cross_type:str, s
                 out["dead"] = len(dead_dates)
         return out
     else:
-            data = get_historical_data(tickers, start_dt, end_dt)
+        data = get_historical_data(tickers, start_dt, end_dt)
     
     # 디버깅: 데이터 구조 확인
     print(f"DEBUG: task3_tools: DataFrame shape: {data.shape}")
@@ -230,41 +234,41 @@ def detect_cross(stock_name:str, start_date:str, end_date:str, cross_type:str, s
             # level=1에서 못 찾으면 level=0에서 시도
             data_need_col = data.xs("Close", level=0, axis=1)
 
-        sma = moving_average(data_need_col, short)   
-        lma = moving_average(data_need_col, long)    
+    sma = moving_average(data_need_col, short)   
+    lma = moving_average(data_need_col, long)    
 
-        golden_cross = (sma >= lma) & (sma.shift(1) < lma.shift(1))
-        dead_cross = (sma <= lma) & (sma.shift(1) > lma.shift(1))
+    golden_cross = (sma >= lma) & (sma.shift(1) < lma.shift(1))
+    dead_cross = (sma <= lma) & (sma.shift(1) > lma.shift(1))
 
-        if start_date and end_date:
-            idx = (data.index >= pd.to_datetime(start_date)) & (data.index <= pd.to_datetime(end_date))
-        else:
-            idx = slice(None)
-        out = {}
-        for ticker in data_need_col.columns:
-            golden_dates = golden_cross[ticker][idx][golden_cross[ticker][idx]].index
-            dead_dates   = dead_cross[ticker][idx][dead_cross[ticker][idx]].index
+    if start_date and end_date:
+        idx = (data.index >= pd.to_datetime(start_date)) & (data.index <= pd.to_datetime(end_date))
+    else:
+        idx = slice(None)
+    out = {}
+    for ticker in data_need_col.columns:
+        golden_dates = golden_cross[ticker][idx][golden_cross[ticker][idx]].index
+        dead_dates   = dead_cross[ticker][idx][dead_cross[ticker][idx]].index
 
-            if cross_type == "golden":
-                if len(golden_dates) > 0:
-                    out[ticker] = len(golden_dates)
-            elif cross_type == "dead":
-                if len(dead_dates) > 0:
-                    out[ticker] = len(dead_dates)
-            else:  
-                info = {}
-                if len(golden_dates) > 0:
-                    info['golden'] = len(golden_dates)
-                if len(dead_dates) > 0:
-                    info['dead'] = len(dead_dates)
-                if info:
-                    out[ticker] = info
-        stock_name_dict = {}
-        for ticker, value in out.items():
-            stock_name = ticker_to_name(ticker, start_dt)
-            stock_name_dict[stock_name] = value
-        return stock_name_dict
-        
+        if cross_type == "golden":
+            if len(golden_dates) > 0:
+                out[ticker] = len(golden_dates)
+        elif cross_type == "dead":
+            if len(dead_dates) > 0:
+                out[ticker] = len(dead_dates)
+        else:  
+            info = {}
+            if len(golden_dates) > 0:
+                info['golden'] = len(golden_dates)
+            if len(dead_dates) > 0:
+                info['dead'] = len(dead_dates)
+            if info:
+                out[ticker] = info
+    stock_name_dict = {}
+    for ticker, value in out.items():
+        stock_name = ticker_to_name(ticker, start_dt)
+        stock_name_dict[stock_name] = value
+    
+    return stock_name_dict
 
 @tool("price_vs_adj_ma",description="특정 날짜에 여러 종목의 종가가 N일 이동평균선(MA) 대비 X% 이상 돌파 또는 이하인 종목을 필터링합니다.")
 def price_vs_adj_ma(target_date:str, ma_window: int, pct: float,operator: Literal[">=","<="] = ">=") -> Dict[str, float]:
@@ -500,7 +504,16 @@ def get_high_volume_stocks(target_date, ma_window, volume_ratio) -> Dict[str, in
     start_dt  = (tgt_date - timedelta(days=extra_date)).strftime("%Y-%m-%d")
     end_dt    = (tgt_date + timedelta(days=1)).strftime("%Y-%m-%d") 
     data = get_historical_data(tickers, start_dt, end_dt)
-    data_need_col = data.xs("Volume", level="Price", axis=1)
+    # Redis 데이터는 Price 레벨이 없으므로 직접 Volume 컬럼 사용
+    if isinstance(data.columns, pd.MultiIndex) and 'Price' in data.columns.get_level_values(0):
+        data_need_col = data.xs("Volume", level="Price", axis=1)
+    else:
+        # Redis 데이터 구조: (Ticker, Field) 형태이므로 level=1로 접근
+        try:
+            data_need_col = data.xs("Volume", level=1, axis=1)
+        except KeyError:
+            # level=1에서 못 찾으면 level=0에서 시도
+            data_need_col = data.xs("Volume", level=0, axis=1)
     data_need_col.index = data_need_col.index.strftime("%Y-%m-%d")  
     if target_date not in data_need_col.index:
         return f"{target_date} is not in index!"
