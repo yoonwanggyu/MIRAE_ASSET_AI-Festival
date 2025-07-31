@@ -64,7 +64,7 @@
 
 ## 🗺️ LangGraph Execution Flow
 <p align="center">
-  <img src="사진/KakaoTalk_Photo_2025-07-31-06-52-44.png" alt="LangGraph flowchart" width="600"/>
+  <img src="사진/C46F42F9-43EA-4169-95B1-05CCE65E79BE.jpeg" alt="LangGraph flowchart" width="600"/>
 </p>
 
 ## 🔄 Flow Details
