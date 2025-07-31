@@ -137,7 +137,15 @@ async def handle_task5_tools(state: ChatbotState):
     사용자 질문을 바탕으로 투자 분석에 필요한 도구들을 호출하여 종합적인 분석을 수행
     """
     user_query = state["question"]
-
+    api_key=state["api_key"]
+    
+    REQUEST_ID = f"req-{uuid.uuid4()}"
+    url = "https://clovastudio.stream.ntruss.com/testapp/v3/chat-completions/HCX-005"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "X-NCP-CLOVASTUDIO-REQUEST-ID": REQUEST_ID,
+        "Content-Type": "application/json"
+    }
     data = {
         "model": "HCX-005",
         "messages": [
