@@ -47,12 +47,11 @@
 └── 📄 requirements.txt                   # Python 패키지 의존성 목록
 ```
 
-
 ## ⚙️ System Architecture
 <p align="center">
   <img src="사진/sys_arch.png" alt="FIN" width="100%""/>
 
-### ⚒️ Tech Stack Overview
+## ⚒️ Tech Stack Overview
 - 🧠 **LLM : HyperClova X**<br>
   네이버의 대규모 언어모델로, 한국어에 특화된 고성능 AI 서비스를 제공합니다.<br>
   → 투자 관련 질의응답, 주식 분석, 금융 데이터 해석 등 전문적인 투자 상담 서비스의 핵심 엔진으로 활용
@@ -114,44 +113,63 @@ Python ASGI 웹 프레임워크 – 타입 힌트 기반 자동 문서화 & 고�
 Task 1:
   - "2024-07-22 KOSPI 지수는?"
   - "대한방직의 2025-04-25 종가는?"
-  - "2024-11-21에서 KOSPI에서 하락률 높은 종목 5개는?"
-  - "2024-12-19에 셀트리온의 거래량 순위는?"
 
 Task 2 :
   - "2025-05-27에 등락률이 +20% 이상인 종목을 모두 보여줘"
   - "2025-05-21에 거래량이 1000만주 이상인 종목을 모두 보여줘"
-  - "2024-07-22에 KOSPI 시장에서 종가가 5만원 이상 10만원 이하인 종목을 모두 보여줘"
-  - "2025-04-22에 거래량이 전날대비 50% 이상 증가한 종목을 모두 보여줘"
 
 Task 3:
   - "2025-03-06에 RSI가 20 이하인 과매도 종목을 알려줘"
   - "2024-08-22에 거래량이 20일 평균 대비 500% 이상 급증한 종목을 알려줘"
-  - "2024-09-10에 볼린저 밴드 상단에 터치한 종목을 알려줘"
-  - "2024-07-18에 종가가 60일 이동평균보다 1% 이상 높은 종목을 알려줘"
 
 Task 4 :
   - "최근 많이 오른 주식"
   - "고점 대비 가장 많이 떨어진 종목"
  ```
 
-⚙️ **Task Tools (Task1 ~ Task3)**
-- 통합: Langchain Tool 데코레이터를 활용하여 HyperClova X와 연동
-- 동작: HyperClova X가 사용자 질문을 분석하여 적합한 도구를 자동 선택 및 실행<br>
-- 구성: 각 Task 특성에 맞는 전용 도구 세트<br>
-  ```bash
-  Task 1: 8개 도구
-  answer_stock_query, answer_market_index,answer_market_ranking,answer_stock_compare,answer_market_stock_compare,answer_market_ratio,answer_market_compare
-  ```
-  ```bash
-  Task 2: 1개 도구
-  answer_task2
-  ```
-  ```bash
-  Task 3: 5개 도구  
-  rsi, detect_cross, price_vs_adj_ma, bollinger_bands, get_high_volume_stocks
-  ```
+⚙️ **Task1 ~ Task3**
+- 목적: HyperClova X가 사용자 질문을 분석하여 적합한 도구를 자동 선택 및 실행<br>
+- 구현: Langchain Tool 데코레이터를 HyperClova X와 결합<br>
+```bash
+# 대표 예시
+@tool("answer_stock_query", description="특정 날짜에 특정 종목의 종가, 시가, 고가, 저가, 등락률 계산")
+def answer_stock_query(stock: str, target_date: str, field: str):
+    """
+    특정 종목(stock)의 특정 날짜(target_date)의 Open/Close/Low/High/change_rate(field)를 반환합니다.
 
-🔧 **Specialized Technology (Task 5)**
+    Args:
+        stock (str): 종목명, 예시 '한양증권'
+        target_date (str): 날짜, 예시 '2025-03-12' (YYYY-MM-DD 형식)
+        field (str): 조회할 항목. 아래 값 중 하나여야 합니다.
+            - "Open"  : 시가
+            - "High"  : 고가
+            - "Low"   : 저가
+            - "Close" : 종가
+            - "change_rate" : 등락률(전일 종가 대비 등락률, %)
+            - "Volumne" : 거래량
+
+    Returns:
+        str: 해당 날짜와 필드에 대한 값. 예를 들어,
+            - "[2025-03-12] 종가: 13,800원"
+            - "[2025-03-12] 시가: 14,000원"
+            - "[2025-03-12] 등락률: -1.65%"
+
+    예시 질문:
+    - "KOSPI에서 롯데지주의 2024-07-05 종가는?"
+    - "삼영엠텍의 2025-05-15 등락률은?"
+    - "한네트의 2024-11-20 시가는?"
+    - "도화엔지니어링의 2025-06-25 고가는?"
+    """
+
+# 각 Task별 Tools List
+Task1_Tools = [answer_stock_query, answer_market_index,answer_market_ranking,answer_stock_compare,answer_market_stock_compare,answer_market_ratio,answer_market_compare]
+Task2_Tools = [answer_task2]
+Task3_Tools = [rsi, detect_cross, price_vs_adj_ma, bollinger_bands, get_high_volume_stocks]
+
+```
+⚙️ **Task 4**
+
+⚙️ **Task 5**
 
 
 ## 🚀 API 사용법
