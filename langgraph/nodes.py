@@ -184,9 +184,15 @@ async def agent_answer(state: ChatbotState):
     clova = ChatClovaX(api_key=state["api_key"], model="HCX-005", temperature=0.2)
     user_query = state["question"]
     task_response = state['task_response']
+    decision_task = state['decision_task']
 
-    prompt = FINAL_ANSWER_PROMPT.format(question = user_query,
+    if decision_task.lower() == 'task5':
+        prompt = TASK5_FINAL_PROMPT.format(question = user_query,
+                                          tool_result = task_response)
+    else:
+        prompt = FINAL_ANSWER_PROMPT.format(question = user_query,
                                         task_result = task_response)
+        
     messages = [("system", prompt)]
     llm_resp = await clova.ainvoke(messages)
     answer  = llm_resp.content.strip()
