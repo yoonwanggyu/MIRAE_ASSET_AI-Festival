@@ -58,30 +58,20 @@ async def handle_task1_tools(state: ChatbotState):
     print(f"DEBUG: Final answer_str in handle_task1_tools: '{answer_str}'")
     return ChatbotState(task_response=answer_str)
 
-
 async def handle_task2_tools(state: ChatbotState):
+    """
+    Task2에 해당하는 노드 함수
+    """
     clova = ChatClovaX(api_key=state["api_key"], model="HCX-005", temperature=0.2)
     user_query = state["question"]
 
-    messages = [
-        ("system", TASK2_PROMPT),
-        ("human", user_query)
-    ]
+    messages = [("system", TASK2_PROMPT),("human", user_query)]
     ai_msg = await clova.ainvoke(messages)
 
     llm_question_analysis = parse_llm_json(ai_msg.content)
-
-    json_str = json.dumps(llm_question_analysis, ensure_ascii=False)
-
-    # 분석 결과를 바탕으로 다시 LLM 호출
-    clova2 = ChatClovaX(api_key=state["api_key"], model="HCX-005", temperature=0.2)
-    result_msg = await clova2.ainvoke(
-        [("system", json_str)]
-    )
-
-    print(f"DEBUG: Final answer in handle_task2_tools: '{result_msg.content}'")
-
-    return ChatbotState(task_response=result_msg.content)
+    result = answer_task2(llm_question_analysis)
+    
+    return ChatbotState(task_response=result)
 
 async def handle_task3_tools(state: ChatbotState):
     """
