@@ -22,6 +22,28 @@ def name_to_ticker(name: str, csv_path="/mnt/c/Users/rladl/Desktop/Mirae_Agent/M
     ticker = row["code"].iloc[0].zfill(6)
     return f"{ticker}.KS" if ticker[0] == "0" else f"{ticker}.KQ"
 
+
+def get_corp_code(stock_name: str, csv_path="/mnt/c/Users/rladl/Desktop/Mirae_Agent/MIRAE_ASSET_AI-Festival/sasha/test/krx_tickers_cleaned.csv"):
+    """
+    한글 종목명을 입력받아 DART 공시용 corp_code(고유번호)를 반환
+    앞자리 0이 사라지지 않도록 문자열로 강제 처리
+    """
+    df = pd.read_csv(csv_path, dtype={"corp_code": str})  # ✅ 핵심
+    name_std = stock_name.strip()
+
+    row = df.loc[df["name"] == name_std]
+    if row.empty:
+        return f"❌ '{stock_name}'의 DART 고유번호(corp_code)를 찾을 수 없습니다."
+
+    corp_code = row["corp_code"].iloc[0]
+
+    if pd.isna(corp_code):
+        return f"❌ '{stock_name}'의 corp_code가 비어있습니다."
+
+    return corp_code
+
+
+
 def ticker_to_name(ticker: str, csv_path="/mnt/c/Users/rladl/Desktop/Mirae_Agent/MIRAE_ASSET_AI-Festival/sasha/test/krx_tickers_cleaned.csv") -> str | None:
     """
     6자리 코드.KS/KQ(티커명) → 코스피/코스닥 한글명(종목명)
