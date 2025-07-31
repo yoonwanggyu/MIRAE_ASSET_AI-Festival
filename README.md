@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="사진/KakaoTalk_Photo_2025-07-31-07-36-41.png" alt="FIN" width="100%""/>
+  <img src="사진/표지.png" alt="FIN" width="100%""/>
 
 <div align=center>
   
