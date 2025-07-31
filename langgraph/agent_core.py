@@ -16,7 +16,7 @@ def route_tasks(state: ChatbotState):
         return "handle_task3_tools"
     elif decision == "Task4":
         return "handle_task4_tools"
-    elif decision == "Task5:
+    elif decision == "Task5":
         return "handle_task5_tools"
     else:
         return "agent_answer"

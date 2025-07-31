@@ -12,3 +12,5 @@ PyYAML
 
 python-dotenv
 holidays
+
+dart_fss
