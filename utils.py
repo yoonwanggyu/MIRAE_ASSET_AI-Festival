@@ -6,7 +6,7 @@ Task1 / Task2 / Task3 공통으로 사용되는 함수 정리
 """
 
 # 티커 / 종목명 / 시장 정리한 파일
-market_list = pd.read_csv("/Users/yoon/MIRAE_ASSET_AI-Festival/foden/data/krx_tickers_cleaned.csv")
+market_list = pd.read_csv("/Users/yoon/MIRAE_ASSET_AI-Festival/data/krx_tickers_with_market.csv")
 
 def name_to_ticker(stock: str) -> str:
     """
@@ -19,7 +19,6 @@ def name_to_ticker(stock: str) -> str:
     Returns:
         str: 티커 ('005930.KS' 또는 '035720.KQ' 등)
     """
-    market_list = pd.read_csv("/Users/yoon/MIRAE_ASSET_AI-Festival/foden/data/krx_tickers_cleaned.csv")
     row = market_list.loc[market_list['name'] == stock]
     if row.empty:
         raise ValueError(f"'{stock}' not found in market_list")
@@ -31,7 +30,6 @@ def ticker_to_name(ticker: str) -> str:
     """
     티커(예: '005930.KS' 또는 '005930')를 종목명으로 반환하는 함수
     """
-    market_list = pd.read_csv("/Users/yoon/MIRAE_ASSET_AI-Festival/foden/data/krx_tickers_cleaned.csv")
     # 숫자 6자리 추출
     code = ticker.split('.')[0]
     # code 컬럼은 str로 변환 후 zfill(6) 보정
@@ -51,7 +49,6 @@ def name_to_market(stock: str) -> str:
     Returns:
         str: 시장명 ('KOSPI' 또는 'KOSDAQ' 등)
     """
-    market_list = pd.read_csv("/Users/yoon/MIRAE_ASSET_AI-Festival/foden/data/krx_tickers_cleaned.csv")
     row = market_list.loc[market_list['name'] == stock]
     if row.empty:
         raise ValueError(f"'{stock}' not found in market_list")
