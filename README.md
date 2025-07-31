@@ -24,25 +24,25 @@
 
 ```plaintext
 📦 프로젝트 루트
-├── 📂 data/
-│   └── 📄 krx_tickers_with_market.csv
-├── 📂 langgraph/
-│   ├── 📄 agent_core.py
-│   ├── 📄 nodes.py
-│   └── 📄 state.py
-├── 📂 tools/
-│   ├── 📄 task1_tools.py
-│   ├── 📄 task2_tools.py
-│   └── 📄 task3_tools.py
-├── 📄 .gitignore
-├── 📄 Dockerfile
-├── 📄 data_fetcher.py
-├── 📄 llm.py
-├── 📄 main.py
-├── 📄 prompt.py
-└── 📄 redis_connector.py
-└── 📄 utils.py
-└── 📄 requirements.txt
+├── 📂 data/                              # 데이터 저장 디렉토리
+│   └── 📄 krx_tickers_with_market.csv    # 한국거래소 종목 코드 및 시장 정보
+├── 📂 langgraph/                         # LangGraph 기반 AI 에이전트 모듈
+│   ├── 📄 agent_core.py                  # 에이전트 핵심 로직 및 워크플로우
+│   ├── 📄 nodes.py                       # 그래프 노드 정의 (각 처리 단계)
+│   └── 📄 state.py                       # 에이전트 상태 관리 및 데이터 구조
+├── 📂 tools/                             # 작업별 도구 모음
+│   ├── 📄 task1_tools.py                 # 1단계 작업용 도구들
+│   ├── 📄 task2_tools.py                 # 2단계 작업용 도구들
+│   └── 📄 task3_tools.py                 # 3단계 작업용 도구들
+├── 📄 .gitignore                         # Git 버전 관리 제외 파일 목록
+├── 📄 Dockerfile                         # Docker 컨테이너 빌드 설정
+├── 📄 data_fetcher.py                    # 외부 데이터 수집 및 처리
+├── 📄 llm.py                             # LLM 모델 설정 및 인터페이스
+├── 📄 main.py                            # 애플리케이션 진입점 (메인 실행 파일)
+├── 📄 prompt.py                          # AI 프롬프트 템플릿 관리
+├── 📄 redis_connector.py                 # Redis 캐시 연결 및 관리
+├── 📄 utils.py                           # 공통 유틸리티 함수들
+└── 📄 requirements.txt                   # Python 패키지 의존성 목록
 ```
 
 ## ⚙️ Tech Stack Overview
