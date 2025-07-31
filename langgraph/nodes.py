@@ -1,4 +1,4 @@
-import re
+import re, requests, asyncio
 
 from langgraph.state import *
 from llm import *
@@ -6,6 +6,7 @@ from prompt import *
 from tools.task1_tools import *
 from tools.task2_tools import *
 from tools.task3_tools import *
+from tools.task5_tools import *
 from utils import *
 
 async def decision_task(state: ChatbotState):
@@ -118,13 +119,49 @@ async def handle_task4_tools(state: ChatbotState):
 
 async def handle_task5_tools(state: ChatbotState):
     """
-    Task4: 모호한 의미 해석 및 정량화 유도 응답 생성.
-    - LLM이 자체 판단으로 [redirect: TaskX] 태그를 포함하면 해당 Task로 연결 가능.
-    - tool은 호출하지 않음.
+    Task5 투자 판단 분석 도구 함수
+    사용자 질문을 바탕으로 투자 분석에 필요한 도구들을 호출하여 종합적인 분석을 수행
     """
-    content = "hello"
+    user_query = state["question"]
 
-    return ChatbotState(task_response=content)
+    data = {
+        "model": "HCX-005",
+        "messages": [
+            {"role": "system", "content": TASK5_TOOLS_PROMPT},
+            {"role": "user", "content": user_query}
+        ],
+        "tools": [{"type": "function", "function": s} for s in task5_functions],
+        "tool_choice": "auto"
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+    result = response.json()
+
+    tool_calls = result['result']['message']['toolCalls']
+    
+    all_outputs = {}
+    final_output = None
+
+    for call in tool_calls:
+        fn_name = call["function"]["name"]
+        args = call["function"]["arguments"]
+        
+        if isinstance(args, str):
+            args = json.loads(args)
+
+        py_func = task5_py_funcs.get(fn_name)
+        if py_func is None:
+            raise ValueError(f"Unsupported function: {fn_name}")
+
+        if asyncio.iscoroutinefunction(py_func):
+            out = await py_func(**args)
+        else:
+            out = await asyncio.to_thread(py_func, **args)
+        
+        all_outputs[fn_name] = out
+        final_output = out  
+
+    return ChatbotState(task_response=final_output)
 
 async def agent_answer(state: ChatbotState):
     """
@@ -132,8 +169,13 @@ async def agent_answer(state: ChatbotState):
     """
     user_query = state["question"]
     task_response = state['task_response']
+    decision_task = state['decision_task']
 
-    prompt = FINAL_ANSWER_PROMPT.format(question = user_query,
+    if decision_task.lower() == 'task5':
+        prompt = TASK5_FINAL_PROMPT.format(question = user_query,
+                                          tool_result = task_response)
+    else:
+        prompt = FINAL_ANSWER_PROMPT.format(question = user_query,
                                         task_result = task_response)
     messages = [("system", prompt)]
     llm_resp = await clova.ainvoke(messages)

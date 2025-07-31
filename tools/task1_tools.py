@@ -15,7 +15,8 @@ field_kor_to_eng = {
     "저가": "Low",
     "종가": "Close",
     "등락률": "change_rate",
-    "거래량": "Volume"
+    "거래량": "Volume",
+    "시가총액": "market_cap"
 }
 
 @tool("answer_stock_query", description="특정 날짜에 특정 종목의 종가, 시가, 고가, 저가, 등락률 계산")
@@ -56,7 +57,7 @@ def answer_stock_query(stock: str, target_date: str, field: str):
     
     data = get_stock_data(ticker, start_dt, end_dt, interval="1d")
     data.index = data.index.strftime("%Y-%m-%d")  
-    
+    target_date = pd.to_datetime(target_date).strftime("%Y-%m-%d")
     if target_date not in data.index:
         return f"{target_date} : {kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
     
@@ -108,7 +109,7 @@ def answer_market_index(target_date:str, market:str):
     data = get_stock_data(ticker, tgt_date, end_dt, interval="1d")
     
     data.index = data.index.strftime("%Y-%m-%d")
-    
+    target_date = pd.to_datetime(target_date).strftime("%Y-%m-%d")
     if target_date not in data.index or data.empty:
         return f"[{target_date}] {kr_holidays.get(target_date)}임으로 해당 날짜의 {market} 지수 데이터가 없습니다."
     
@@ -164,6 +165,7 @@ def answer_market_ranking(market:str, target_date:str, field:str, top_n:int, rea
             return f"[{target_date}] {kr_holidays.get(target_date)}임으로 해당 날짜의 {need_col} 데이터 없음"
         data_need_col = data[need_col]
     data_need_col.index = data_need_col.index.strftime("%Y-%m-%d")  
+    target_date = pd.to_datetime(target_date).strftime("%Y-%m-%d")
 
     if field == 'change_rate':
         change_rates = {}
@@ -211,7 +213,7 @@ def answer_market_ranking(market:str, target_date:str, field:str, top_n:int, rea
         result_list.append(f"{stock_name} ({t}): {round(v,2):,}{unit}")
     return result_list
     
-@tool("answer_stock_compare", description="특정 날짜에 두 종목의 종가, 거래량, 시가총액, 등락률을 비교해 더 큰 종목을 반환")
+@tool("answer_stock_compare", description="특정 날짜에 두 종목의 종가, 거래량, 시가총액, 등락률, 시가총액을 비교해 더 큰 종목을 반환")
 def answer_stock_compare(stock_name1:str, stock_name2:str, target_date:str, field:str):
     """
     특정 날짜(target_date)에 두 종목(stock_name1, stock_name2)의 종가/거래량/시가총액/등락률을 비교하여 더 큰 값을 가진 종목을 반환합니다.
@@ -239,6 +241,7 @@ def answer_stock_compare(stock_name1:str, stock_name2:str, target_date:str, fiel
     - "2025-02-28에 현대차과 삼성SDI 중 등락률이 더 높은 종목은?"
     - "2024-11-06에 현대차과 NAVER 중 시가총액이 더 큰 종목은?"
     """
+    print(field)
     field = field_kor_to_eng.get(field, field)
     ticker1 = name_to_ticker(stock_name1)
     ticker2 = name_to_ticker(stock_name2)
@@ -249,6 +252,7 @@ def answer_stock_compare(stock_name1:str, stock_name2:str, target_date:str, fiel
 
     data = get_stock_data([ticker1, ticker2], start_dt, end_dt,interval="1d")
     data.index = data.index.strftime("%Y-%m-%d")
+    target_date = pd.to_datetime(target_date).strftime("%Y-%m-%d")
     if target_date not in data.index:
         return f"{kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 없습니다."
     
@@ -351,7 +355,7 @@ def answer_stock_ranking(stock_name:str, target_date:str, field:str):
     else:
         volume_df = data[[field]]
     volume_df.index = volume_df.index.strftime("%Y-%m-%d")
-    
+    target_date = pd.to_datetime(target_date).strftime("%Y-%m-%d")
     if target_date not in volume_df.index:
         return f"{kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 없습니다."
 
@@ -407,6 +411,7 @@ def answer_market_stock_compare(stock_name:str, target_date:str):
         price_df = data.xs('Close', level='Price', axis=1)
         price_df.index = price_df.index.strftime("%Y-%m-%d")
         idx_list = list(price_df.index)
+        target_date = pd.to_datetime(target_date).strftime("%Y-%m-%d")
         if target_date not in price_df.index:
             return f"{kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 없습니다."
         
@@ -475,7 +480,7 @@ def answer_market_ratio(stock_name:str, target_date:str):
         else:
             volume_df = data[['Volume']]
         volume_df.index = volume_df.index.strftime("%Y-%m-%d")
-        
+        target_date = pd.to_datetime(target_date).strftime("%Y-%m-%d")
         if target_date not in volume_df.index:
             return f"{kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 없습니다."
 
@@ -523,6 +528,7 @@ def answer_market_compare(target_date:str,field:str):
     for market, ticker in [("KOSPI", "^KS11"), ("KOSDAQ", "^KQ11")]:
         data = get_stock_data(ticker, start_dt, end_dt, interval="1d")
         data.index = data.index.strftime("%Y-%m-%d")
+        target_date = pd.to_datetime(target_date).strftime("%Y-%m-%d")
         if target_date not in data.index:
             return f"{kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 없습니다."
         

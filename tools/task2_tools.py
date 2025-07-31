@@ -139,7 +139,7 @@ def answer_task2(q: dict) -> List[str]:
         only_need_col = data.xs(need_col, level=1, axis=1)
 
         data.index = only_need_col.index.strftime("%Y-%m-%d")  
-    
+        tgt_date = pd.to_datetime(tgt_date).strftime("%Y-%m-%d")
         if tgt_date not in data.index:
             return f"{tgt_date} : {kr_holidays.get(tgt_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
 

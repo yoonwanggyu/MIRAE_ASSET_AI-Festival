@@ -6,7 +6,7 @@ Task1 / Task2 / Task3 공통으로 사용되는 함수 정리
 """
 
 # 티커 / 종목명 / 시장 정리한 파일
-market_list = pd.read_csv("/Users/yoon/MIRAE_ASSET_AI-Festival/data/krx_tickers_with_market.csv")
+market_list = pd.read_csv("data/krx_tickers_with_market.csv")
 
 def name_to_ticker(stock: str) -> str:
     """

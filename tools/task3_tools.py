@@ -84,6 +84,7 @@ def rsi(target_date:str, threshold:int, operator:str) -> Dict[str, float]:
 
     rsi_df = calc_rsi_df(data_need_col)
     rsi_df.index = rsi_df.index.strftime("%Y-%m-%d")  
+    target_date = pd.to_datetime(tgt_date).strftime("%Y-%m-%d")
     
     if target_date not in rsi_df.index:
         return f"{target_date} : {kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
@@ -279,6 +280,7 @@ def price_vs_adj_ma(target_date:str, ma_window: int, pct: float,operator: Litera
 
     data = download_in_batches(tickers, start_dt, end_dt, batch_size=200)
     data.index = data.index.strftime("%Y-%m-%d")  
+    target_date = pd.to_datetime(tgt_date).strftime("%Y-%m-%d")
     
     if not isinstance(data.columns, pd.MultiIndex):
         return "DataFrame columns must be MultiIndex (PriceType, Ticker)"
@@ -355,6 +357,7 @@ def bollinger_bands(target_date:str, bollinger_side : str = 'upper', window: int
 
     data = download_in_batches(tickers, start_dt, end_dt, batch_size=200)
     data.index = data.index.strftime("%Y-%m-%d")  
+    target_date = pd.to_datetime(tgt_date).strftime("%Y-%m-%d")
     if not isinstance(data.columns, pd.MultiIndex):
         return "DataFrame columns must be MultiIndex (PriceType, Ticker)"
     if target_date not in data.index:
@@ -436,6 +439,7 @@ def get_high_volume_stocks(target_date, ma_window, volume_ratio) -> Dict[str, in
     data = download_in_batches(tickers, start_dt, end_dt, batch_size=200)
     data_need_col = data.xs("Volume", level="Price", axis=1)
     data_need_col.index = data_need_col.index.strftime("%Y-%m-%d")  
+    target_date = pd.to_datetime(tgt_date).strftime("%Y-%m-%d")
     if target_date not in data_need_col.index:
         return f"{target_date} : {kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
 
