@@ -1,6 +1,6 @@
 import pandas as pd
 import json, re, ast
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import lru_cache
 import unicodedata
 # Redis 연결 객체를 임포트합니다.
@@ -17,6 +17,11 @@ def is_redis_target_date(target_date_str: str) -> bool:
     if not target_date_str:
         print(f"DEBUG: is_redis_target_date received empty target_date_str.")
         return False
+    
+    # datetime 객체인 경우 문자열로 변환
+    if isinstance(target_date_str, datetime):
+        target_date_str = target_date_str.strftime("%Y-%m-%d")
+    
     try:
         target_date = datetime.strptime(target_date_str, "%Y-%m-%d")
         result = REDIS_START_DATE <= target_date <= REDIS_END_DATE
@@ -184,11 +189,11 @@ def ticker_to_name(ticker: str, target_date: str) -> str:
                 print(f"DEBUG: Found '{ticker}' in Redis with key '{redis_key}'. Returning name: {name}")
                 return name
             else:
-                print(f"DEBUG: Redis key '{redis_key}' returned None (not found).")
-                raise ValueError(f"'{ticker}' not found in Redis for date {target_date}. Redis key: {redis_key}")
+                print(f"DEBUG: Redis key '{redis_key}' returned None (not found). Falling back to CSV.")
+                return name
         except Exception as e:
-            print(f"DEBUG: Error during Redis GET for key '{redis_key}': {e}")
-            raise ValueError(f"Error during Redis lookup for '{ticker}': {e}")
+            print(f"DEBUG: Error during Redis GET for key '{redis_key}': {e}. Falling back to CSV.")
+            return name
     else:
         print(f"DEBUG: Target date '{target_date}' not within Redis range. Falling back to CSV.")
         return ticker_to_name_from_csv(ticker)
@@ -242,8 +247,8 @@ def name_to_market(stock_name: str, target_date: str) -> str:
                 print(f"DEBUG: Found '{stock_name}' in Redis with key '{redis_key}'. Returning market: {market}")
                 return market
             else:
-                print(f"DEBUG: Redis key '{redis_key}' returned None (not found).")
-                raise ValueError(f"'{stock_name}' not found in Redis for date {target_date}. Redis key: {redis_key}")
+                print(f"DEBUG: Redis key '{redis_key}' returned None (not found). Falling back to CSV.")
+                return market
         except Exception as e:
             print(f"DEBUG: Error during Redis GET for key '{redis_key}': {e}")
             raise ValueError(f"Error during Redis lookup for '{stock_name}': {e}")
@@ -286,8 +291,11 @@ def get_all_stocks_for_date_from_redis(target_date: str):
                 stock_list.append({"code": code, "name": normalized_name_from_key, "market": market})
             else:
                 print(f"DEBUG: get_all_stocks_for_date_from_redis: Key format mismatch (not 4 parts): '{key_str}'")
-        except Exception as e:
+        except (ValueError, IndexError) as e:
             print(f"DEBUG: get_all_stocks_for_date_from_redis: Error processing key '{key_str}': {e}")
+            continue
+        except Exception as e:
+            print(f"DEBUG: get_all_stocks_for_date_from_redis: Unexpected error processing key '{key_str}': {e}")
             continue
     print(f"DEBUG: get_all_stocks_for_date_from_redis: Found {len(stock_list)} stocks for date {target_date}.")
     return stock_list

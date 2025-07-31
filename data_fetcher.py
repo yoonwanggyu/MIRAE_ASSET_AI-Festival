@@ -111,18 +111,37 @@ def fetch_from_redis(target_date: str, end_date: str = None, target_tickers: lis
     print(f"DEBUG: fetch_from_redis: Single pipeline executed. Got {len(redis_results)} results.")
 
     all_data = []
-    for key, result_json in zip(all_keys, redis_results):
-        if result_json:
-            try:
-                data = json.loads(result_json)
-                current_date, market, code, name = key.split(":", 3)
-                data['Date'] = pd.to_datetime(current_date)
-                suffix = ".KS" if market == "KOSPI" else ".KQ"
-                data['Ticker'] = f"{code}{suffix}"
-                all_data.append(data)
-            except (json.JSONDecodeError, ValueError) as e:
-                print(f"DEBUG: fetch_from_redis: Error parsing JSON or key for '{key}': {e}. Raw JSON: {result_json}")
-                continue
+    print(f"DEBUG: fetch_from_redis: Processing {len(all_keys)} keys and {len(redis_results)} results")
+    
+    # 길이가 다를 경우 더 짧은 쪽에 맞춤
+    min_length = min(len(all_keys), len(redis_results))
+    print(f"DEBUG: fetch_from_redis: Using min_length: {min_length}")
+    
+    for i in range(min_length):
+        try:
+            key = all_keys[i]
+            result_json = redis_results[i]
+            
+            if result_json:
+                try:
+                    data = json.loads(result_json)
+                    parts = key.split(":", 3)
+                    if len(parts) == 4:
+                        current_date, market, code, name = parts
+                        data['Date'] = pd.to_datetime(current_date)
+                        suffix = ".KS" if market == "KOSPI" else ".KQ"
+                        data['Ticker'] = f"{code}{suffix}"
+                        all_data.append(data)
+                    else:
+                        print(f"DEBUG: fetch_from_redis: Key format mismatch (not 4 parts): '{key}'")
+                        continue
+                except (json.JSONDecodeError, ValueError) as e:
+                    print(f"DEBUG: fetch_from_redis: Error parsing JSON or key for '{key}': {e}. Raw JSON: {result_json}")
+                    continue
+        except IndexError as e:
+            print(f"DEBUG: fetch_from_redis: IndexError at position {i}: {e}")
+            print(f"DEBUG: fetch_from_redis: all_keys length: {len(all_keys)}, redis_results length: {len(redis_results)}")
+            break
 
 
     if not all_data:

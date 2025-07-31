@@ -119,7 +119,7 @@ def rsi(target_date:str, threshold:int, operator:str) -> Dict[str, float]:
     return sorted_dict
 
 @tool ("detect_cross", description="여러 종목 또는 단일 종목의 골든/데드크로스 발생 횟수 또는 종목명을 반환합니다. cross_type은 반드시 'golden','dead','all' 세 개 중 하나만 입력하세요!")
-def detect_cross(stock_name:str, start_date:str, end_date:str, cross_type:str, short: int = 5, long: int = 20) -> Dict[str, float]:
+def detect_cross(start_date:str, end_date:str, cross_type:str, stock_name:str = None, short: int = 5, long: int = 20) -> Dict[str, float]:
     """
     [이동평균선(MA) 교차 신호(골든/데드크로스) 탐지 함수]
 
@@ -168,7 +168,7 @@ def detect_cross(stock_name:str, start_date:str, end_date:str, cross_type:str, s
     start_dt = (start_date - timedelta(days=40)).strftime("%Y-%m-%d")
     end_dt    = (end_date + timedelta(days=1)).strftime("%Y-%m-%d") 
 
-    if stock_name:
+    if stock_name and stock_name.strip():
         ticker = name_to_ticker(stock_name, start_dt)
         data = get_historical_data([ticker], start_dt, end_dt)
         # Redis 데이터는 Price 레벨이 없으므로 직접 Close 컬럼 사용

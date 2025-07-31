@@ -150,13 +150,13 @@ def answer_stock_query(stock: str, target_date: str, field: str):
     field = field_kor_to_eng.get(field, field)
     ticker = name_to_ticker(stock, target_date)
     code = ticker.split('.')[0]
-
+    market = name_to_market(stock, target_date)
     tgt_date = datetime.strptime(target_date, "%Y-%m-%d")
     start_dt = tgt_date - timedelta(days=7) if field == 'change_rate' else tgt_date
     end_dt = tgt_date + timedelta(days=1)
     
     # data = get_stock_data(ticker, start_dt, end_dt, interval="1d")
-    data = get_single_day_data(stock, code, market, target_date)
+    data = get_single_day_data(stock, code, market, tgt_date)
     data.index = data.index.strftime("%Y-%m-%d")  
     target_date = pd.to_datetime(target_date).strftime("%Y-%m-%d")
     if target_date not in data.index:
@@ -164,7 +164,13 @@ def answer_stock_query(stock: str, target_date: str, field: str):
     
     if field == 'change_rate':
         idx_list = list(data.index)
+        if target_date not in idx_list:
+            return f"[{target_date}] 등락률 계산을 위한 데이터가 부족합니다."
+        
         tgt_idx = idx_list.index(target_date)
+        if tgt_idx == 0:
+            return f"[{target_date}] 등락률 계산을 위한 이전 날짜 데이터가 없습니다."
+        
         prev_date = idx_list[tgt_idx - 1]
         
         now_close = data.loc[target_date, 'Close']
@@ -181,8 +187,13 @@ def answer_stock_query(stock: str, target_date: str, field: str):
         "Volume": "거래량"
     }
     label = field_map.get(field, field)
-    result = data.loc[target_date, field]
-    return f"[{target_date}] {label}: {int(result):,}원"
+    
+    try:
+        result = data.loc[target_date, field]
+        return f"[{target_date}] {label}: {int(result):,}원"
+    except (KeyError, IndexError) as e:
+        print(f"DEBUG: answer_stock_query: Error accessing data for '{target_date}' field '{field}': {e}")
+        return f"[{target_date}] {stock}의 {label} 데이터를 조회할 수 없습니다."
     #######------------------------------------------------
     
 @tool("answer_market_index", description="특정 날짜의 KOSPI 또는 KOSDAQ 지수(종가) 조회")
@@ -227,8 +238,12 @@ def answer_market_index(target_date:str, market:str):
     if target_date not in data.index or data.empty:
         return f"[{target_date}] {kr_holidays.get(target_date)}임으로 해당 날짜의 {market} 지수 데이터가 없습니다."
     
-    close = float(data.loc[target_date, 'Close'])
-    return f"[{target_date}] {market} 지수: {close:.2f}"
+    try:
+        close = float(data.loc[target_date, 'Close'])
+        return f"[{target_date}] {market} 지수: {close:.2f}"
+    except (KeyError, IndexError) as e:
+        print(f"DEBUG: answer_market_index: Error accessing data for '{target_date}': {e}")
+        return f"[{target_date}] {market} 지수 데이터를 조회할 수 없습니다."
     #######------------------------------------------------
 
 @tool("answer_market_ranking", description="특정 날짜의 시장 내 종가/거래량/등락률 상위 또는 하위 종목 순위 조회")
@@ -281,13 +296,21 @@ def answer_market_ranking(market:str, target_date:str, field:str, top_n:int, rea
     if field_eng == 'change_rate':
         if len(data_need_col) < 2:
             return f"[{target_date}] 등락률을 계산할 전일 데이터가 없습니다."
-        now_prices = data_need_col.loc[target_date]
-        prev_prices = data_need_col.iloc[-2]
-        series = ((now_prices - prev_prices) / prev_prices * 100).dropna()
+        try:
+            now_prices = data_need_col.loc[target_date]
+            prev_prices = data_need_col.iloc[-2]
+            series = ((now_prices - prev_prices) / prev_prices * 100).dropna()
+        except (KeyError, IndexError) as e:
+            print(f"DEBUG: answer_market_ranking: Error calculating change rate for '{target_date}': {e}")
+            return f"[{target_date}] 등락률 계산 중 오류가 발생했습니다."
     else:
         if target_date not in data_need_col.index:
             return f"[{target_date}] {kr_holidays.get(target_date)}임으로 해당 날짜의 데이터 없음"
-        series = data_need_col.loc[target_date].dropna()
+        try:
+            series = data_need_col.loc[target_date].dropna()
+        except (KeyError, IndexError) as e:
+            print(f"DEBUG: answer_market_ranking: Error accessing data for '{target_date}': {e}")
+            return f"[{target_date}] 데이터 접근 중 오류가 발생했습니다."
 
     ascending = '하락' in reasoning or '하위' in reasoning or '낮은' in reasoning
     ranked = series.sort_values(ascending=ascending)
@@ -347,17 +370,21 @@ def answer_stock_compare(stock_name1:str, stock_name2:str, target_date:str, fiel
         stock_data.index = stock_data.index.strftime("%Y-%m-%d")
         
         val, unit = None, ""
-        if field_eng == "change_rate":
-            if len(stock_data) >= 2:
-                now = stock_data.loc[target_date, 'Close']
-                prev = stock_data.iloc[-2]['Close']
-                if pd.notna(now) and pd.notna(prev) and prev != 0:
-                    val = ((now - prev) / prev) * 100
-            unit = "%"
-        else: # Close, Open, High, Low, Volume
-            if target_date in stock_data.index:
-                val = stock_data.loc[target_date, field_eng]
-            unit = "주" if field_eng == "Volume" else "원"
+        try:
+            if field_eng == "change_rate":
+                if len(stock_data) >= 2:
+                    now = stock_data.loc[target_date, 'Close']
+                    prev = stock_data.iloc[-2]['Close']
+                    if pd.notna(now) and pd.notna(prev) and prev != 0:
+                        val = ((now - prev) / prev) * 100
+                unit = "%"
+            else: # Close, Open, High, Low, Volume
+                if target_date in stock_data.index:
+                    val = stock_data.loc[target_date, field_eng]
+                unit = "주" if field_eng == "Volume" else "원"
+        except (KeyError, IndexError) as e:
+            print(f"DEBUG: answer_stock_compare: Error accessing data for '{name}' on '{target_date}': {e}")
+            val = None
         results[name] = (val, unit)
 
     filtered = {k: v for k, v in results.items() if v[0] is not None}
@@ -408,17 +435,18 @@ def answer_stock_ranking(stock_name:str, target_date:str, field:str):
     if data.empty: return f"[{target_date}] 시장 데이터를 조회할 수 없습니다."
 
     need_col = 'Volume' if field_eng == 'Volume' else 'Close'
-    series = data.xs(need_col, level=1, axis=1).loc[target_date].dropna()
-    
-    sorted_series = series.sort_values(ascending=False)
-    
     try:
+        series = data.xs(need_col, level=1, axis=1).loc[target_date].dropna()
+        
+        sorted_series = series.sort_values(ascending=False)
+        
         rank = sorted_series.index.get_loc(target_ticker) + 1
         val = sorted_series.loc[target_ticker]
         total = len(sorted_series)
         unit = "주" if need_col == "Volume" else "원"
         return f"{target_date} {stock_name}({target_ticker})의 {field} 순위: {rank}위 / {total}종목 ({val:,.0f}{unit})"
-    except KeyError:
+    except (KeyError, IndexError) as e:
+        print(f"DEBUG: answer_stock_ranking: Error calculating ranking for '{stock_name}' on '{target_date}': {e}")
         return f"[{target_date}] {stock_name}의 순위를 계산할 수 없습니다."
 
 
@@ -451,15 +479,19 @@ def answer_market_stock_compare(stock_name:str, target_date:str):
     if data.empty or len(data) < 2: 
         return f"{kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 없습니다."
     
-    price_df = data.xs('Close', level=1, axis=1)
-    price_df.index = price_df.index.strftime("%Y-%m-%d")
-    
-    now_prices = price_df.loc[target_date]
-    prev_prices = price_df.iloc[-2]
-    
-    all_rates = ((now_prices - prev_prices) / prev_prices * 100).dropna()
-    market_avg = all_rates.mean()
-    stock_chgrate = all_rates.get(ticker)
+    try:
+        price_df = data.xs('Close', level=1, axis=1)
+        price_df.index = price_df.index.strftime("%Y-%m-%d")
+        
+        now_prices = price_df.loc[target_date]
+        prev_prices = price_df.iloc[-2]
+        
+        all_rates = ((now_prices - prev_prices) / prev_prices * 100).dropna()
+        market_avg = all_rates.mean()
+        stock_chgrate = all_rates.get(ticker)
+    except (KeyError, IndexError) as e:
+        print(f"DEBUG: answer_market_stock_compare: Error calculating rates for '{target_date}': {e}")
+        return f"[{target_date}] 등락률 계산 중 오류가 발생했습니다."
 
     if stock_chgrate is None: 
         return f"[{target_date}] {stock_name}의 등락률을 계산할 수 없습니다."
@@ -493,13 +525,17 @@ def answer_market_ratio(stock_name:str, target_date:str):
     data = get_historical_data(all_tickers, target_date, target_date)
     if data.empty: return f"[{target_date}] 시장 데이터를 조회할 수 없습니다."
 
-    volume_df = data.xs('Volume', level=1, axis=1)
-    if target_date not in volume_df.index.strftime('%Y-%m-%d'): 
-        return f"[{target_date}] {kr_holidays.get(target_date)}임으로 해당 날짜의 거래량 데이터가 없습니다."
-    
-    vols = volume_df.loc[target_date]
-    stock_vol = vols.get(ticker)
-    total_vol = vols.sum()
+    try:
+        volume_df = data.xs('Volume', level=1, axis=1)
+        if target_date not in volume_df.index.strftime('%Y-%m-%d'): 
+            return f"[{target_date}] {kr_holidays.get(target_date)}임으로 해당 날짜의 거래량 데이터가 없습니다."
+        
+        vols = volume_df.loc[target_date]
+        stock_vol = vols.get(ticker)
+        total_vol = vols.sum()
+    except (KeyError, IndexError) as e:
+        print(f"DEBUG: answer_market_ratio: Error accessing volume data for '{target_date}': {e}")
+        return f"[{target_date}] 거래량 데이터 접근 중 오류가 발생했습니다."
 
     if pd.isna(stock_vol) or total_vol == 0:
         return f"[{target_date}] {stock_name}의 거래량 비중을 계산할 수 없습니다."

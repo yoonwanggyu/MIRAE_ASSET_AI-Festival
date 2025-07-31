@@ -308,51 +308,106 @@ def answer_task2(q: dict) -> List[str]:
         data = get_historical_data(tickers, start_dt, end_dt) # <---------------------------------Redis로 대체
 
         # 거래량 / 종가 계산 컬럼만 있는 데이터프레임
-        only_need_col = data.xs(need_col, level=1, axis=1)
-
-        data.index = only_need_col.index.strftime("%Y-%m-%d")  
-        tgt_date = pd.to_datetime(tgt_date).strftime("%Y-%m-%d")
-        if tgt_date not in data.index:
-            return f"{tgt_date} : {kr_holidays.get(tgt_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
+        try:
+            only_need_col = data.xs(need_col, level=1, axis=1)
+            
+            if only_need_col.empty:
+                print(f"DEBUG: answer_stock_screening: No data found for column '{need_col}'")
+                return {"error": f"필요한 컬럼 '{need_col}'에 대한 데이터가 없습니다."}
+            
+            data.index = only_need_col.index.strftime("%Y-%m-%d")  
+            tgt_date = pd.to_datetime(tgt_date).strftime("%Y-%m-%d")
+            if tgt_date not in data.index:
+                return f"{tgt_date} : {kr_holidays.get(tgt_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
+        except (KeyError, IndexError) as e:
+            print(f"DEBUG: answer_stock_screening: Error processing data for column '{need_col}': {e}")
+            return {"error": f"데이터 처리 중 오류가 발생했습니다: {e}"}
 
         # 전날 대비 거래량 / 등락률 계산
-        if date_range == 2:
-            only_need_col_edit = only_need_col.pct_change() * 100
-            final_data = only_need_col_edit.iloc[-1]
-            final_data = final_data.dropna()
-        else:
-            final_data = only_need_col.iloc[-1]
-            final_data = final_data.dropna()
+        try:
+            if date_range == 2:
+                only_need_col_edit = only_need_col.pct_change() * 100
+                if len(only_need_col_edit) > 0:
+                    final_data = only_need_col_edit.iloc[-1]
+                    final_data = final_data.dropna()
+                else:
+                    print(f"DEBUG: answer_stock_screening: No data available for change rate calculation")
+                    return {"error": "등락률 계산을 위한 데이터가 부족합니다."}
+            else:
+                if len(only_need_col) > 0:
+                    final_data = only_need_col.iloc[-1]
+                    final_data = final_data.dropna()
+                else:
+                    print(f"DEBUG: answer_stock_screening: No data available for field calculation")
+                    return {"error": "필드 계산을 위한 데이터가 부족합니다."}
+        except (IndexError, KeyError) as e:
+            print(f"DEBUG: answer_stock_screening: Error accessing data: {e}")
+            return {"error": f"데이터 접근 중 오류가 발생했습니다: {e}"}
             
-        result = apply_operator(final_data, q['conditions'][i]['operator'], q['conditions'][i]['value'], q['conditions'][i]['min_value'], q['conditions'][i]['max_value'])
+        try:
+            result = apply_operator(final_data, q['conditions'][i]['operator'], q['conditions'][i]['value'], q['conditions'][i]['min_value'], q['conditions'][i]['max_value'])
 
-        # 조건 만족해서 True인 행의 Ticker들
-        true_tickers = result[result == True].index.tolist()
+            # 조건 만족해서 True인 행의 Ticker들
+            true_tickers = result[result == True].index.tolist()
 
-        # 조건별 결과 저장
-        condition_results.append(true_tickers)
+            # 조건별 결과 저장
+            condition_results.append(true_tickers)
+        except (IndexError, KeyError) as e:
+            print(f"DEBUG: answer_stock_screening: Error applying operator for condition {i}: {e}")
+            return {"error": f"조건 {i+1} 적용 중 오류가 발생했습니다: {e}"}
 
     # ---------- 교집합 계산 ----------
+    print(f"DEBUG: answer_stock_screening: condition_results: {condition_results}")
+    
     if not condition_results:        
+        print(f"DEBUG: answer_stock_screening: No condition results found. Returning empty result.")
         return {}
 
     # 조건이 1개면 그대로, 2개 이상이면 set 교집합
-    if len(condition_results) == 1:
-        final_tickers = condition_results[0]
-    else:
-        # map(set, …) 으로 각 리스트를 집합으로 변환 후 reduce 로 교차
-        from functools import reduce
-        final_tickers = list(
-            reduce(set.intersection, map(set, condition_results)))
+    try:
+        if len(condition_results) == 1:
+            final_tickers = condition_results[0]
+            print(f"DEBUG: answer_stock_screening: Single condition result: {final_tickers}")
+        else:
+            # map(set, …) 으로 각 리스트를 집합으로 변환 후 reduce 로 교차
+            from functools import reduce
+            # 빈 리스트가 있는지 확인
+            valid_results = [result for result in condition_results if result and len(result) > 0]
+            if not valid_results:
+                print(f"DEBUG: answer_stock_screening: No valid results for intersection")
+                final_tickers = []
+            else:
+                final_tickers = list(
+                    reduce(set.intersection, map(set, valid_results)))
+                print(f"DEBUG: answer_stock_screening: Intersection result: {final_tickers}")
+    except (IndexError, TypeError) as e:
+        print(f"DEBUG: answer_stock_screening: Error calculating intersection: {e}")
+        print(f"DEBUG: answer_stock_screening: condition_results: {condition_results}")
+        return {"error": f"교집합 계산 중 오류가 발생했습니다: {e}"}
 
     # 최종 결과를 딕셔너리로 변환
-    stock_names = {}
-    for ticker in final_tickers:
-        clean_ticker = ticker.replace('.KS', '').replace('.KQ', '')
-        # stock_name = ticker_to_name(clean_ticker)
-        stock_name = ticker_to_name(clean_ticker, target_date_str) # <-----------------하윤이 ticker_to_name 적용
-        stock_names[ticker] = stock_name
+    try:
+        stock_names = {}
+        print(f"DEBUG: answer_stock_screening: final_tickers type: {type(final_tickers)}, value: {final_tickers}")
+        
+        if final_tickers and isinstance(final_tickers, list) and len(final_tickers) > 0:
+            for ticker in final_tickers:
+                try:
+                    # clean_ticker = ticker.replace('.KS', '').replace('.KQ', '')
+                    # stock_name = ticker_to_name(clean_ticker)
+                    stock_name = ticker_to_name(ticker, target_date_str) # <-----------------하윤이 ticker_to_name 적용
+                    stock_names[ticker] = stock_name
+                except (IndexError, KeyError, AttributeError) as e:
+                    print(f"DEBUG: answer_stock_screening: Error processing ticker '{ticker}': {e}")
+                    continue
+        else:
+            print(f"DEBUG: answer_stock_screening: No valid final_tickers found. Returning empty result.")
+            return {}
 
-    return stock_names
+        return stock_names
+    except (IndexError, KeyError, TypeError) as e:
+        print(f"DEBUG: answer_stock_screening: Error converting final results: {e}")
+        print(f"DEBUG: answer_stock_screening: final_tickers: {final_tickers}")
+        return {"error": f"최종 결과 변환 중 오류가 발생했습니다: {e}"}
         
 task2_tools = [answer_task2]
