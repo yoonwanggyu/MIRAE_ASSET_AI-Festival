@@ -1,11 +1,13 @@
 from typing import List
 from datetime import datetime, timedelta
 from typing import Dict, Callable, List
-from langchain.tools import tool
+import holidays
 
 from utils import *
 from data_fetcher import *
     
+kr_holidays = holidays.SouthKorea()
+
 # 1. 유틸: 연산자 함수 테이블
 OPS: Dict[str, Callable] = {
     ">":  lambda a, b: a > b,
@@ -135,6 +137,11 @@ def answer_task2(q: dict) -> List[str]:
 
         # 거래량 / 종가 계산 컬럼만 있는 데이터프레임
         only_need_col = data.xs(need_col, level=1, axis=1)
+
+        data.index = only_need_col.index.strftime("%Y-%m-%d")  
+    
+        if tgt_date not in data.index:
+            return f"{tgt_date} : {kr_holidays.get(tgt_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
 
         # 전날 대비 거래량 / 등락률 계산
         if date_range == 2:

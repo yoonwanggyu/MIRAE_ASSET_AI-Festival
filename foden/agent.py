@@ -14,6 +14,7 @@ def create_agent():
     builder.add_node("task2_tools", handle_task2_tools)
     builder.add_node("task3_tools", handle_task3_tools)
     builder.add_node("task4_tools", handle_task4_tools)
+    builder.add_node("task5_tools", handle_task5_tools)
     builder.add_node("agent_answer", agent_answer)
 
     builder.add_edge(START, "decision_task")
@@ -23,12 +24,14 @@ def create_agent():
         {"Task1": "task1_tools",
         "Task2": "task2_tools",
         "Task3": "task3_tools",
-        "Task4": "task4_tools"}
+        "Task4": "task4_tools",
+        "Task5": "task5_tools"}
         )
     builder.add_edge("task1_tools", "agent_answer")
     builder.add_edge("task2_tools", "agent_answer")
     builder.add_edge("task3_tools", "agent_answer")
     builder.add_edge("task4_tools",END)
+    builder.add_edge("task5_tools", "agent_answer")
     builder.add_edge("agent_answer", END)
 
     graph = builder.compile()

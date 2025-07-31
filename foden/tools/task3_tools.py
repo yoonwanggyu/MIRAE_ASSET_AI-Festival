@@ -4,9 +4,12 @@ from typing import List, Dict, Literal
 from datetime import datetime, timedelta
 from langchain.tools import tool
 import numpy as np
+import holidays
 
 from utils import *
 from data_fetcher import *
+
+kr_holidays = holidays.SouthKorea()
     
 def moving_average(df: pd.DataFrame, window: int, status : str = 'mean') -> pd.DataFrame:
     """
@@ -83,7 +86,7 @@ def rsi(target_date:str, threshold:int, operator:str) -> Dict[str, float]:
     rsi_df.index = rsi_df.index.strftime("%Y-%m-%d")  
     
     if target_date not in rsi_df.index:
-        return f"{target_date} : 해당 날짜의 데이터가 존재하지 않습니다."
+        return f"{target_date} : {kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
 
     rsi_on_date = rsi_df.loc[target_date]
 
@@ -280,7 +283,7 @@ def price_vs_adj_ma(target_date:str, ma_window: int, pct: float,operator: Litera
     if not isinstance(data.columns, pd.MultiIndex):
         return "DataFrame columns must be MultiIndex (PriceType, Ticker)"
     if target_date not in data.index:
-        return f"{target_date} is not in index!"
+        return f"{target_date} : {kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
 
     results = {}
     # target_date = pd.to_datetime(target_date)
@@ -344,14 +347,6 @@ def bollinger_bands(target_date:str, bollinger_side : str = 'upper', window: int
     - "2024-11-18에 볼린저 밴드 하단에 터치한 종목을 알려줘"
     >>> bollinger_bands(target_date="2024-11-18", bollinger_side="lower")
     """
-    print(target_date)
-    print(bollinger_side)
-
-    # side_map = {
-    #     "상단": "upper", "상": "upper", "top": "upper", "upper": "upper",
-    #     "하단": "lower", "하": "lower", "bottom": "lower", "lower": "lower"
-    # }
-    # bollinger_side = side_map.get(bollinger_side.lower(), bollinger_side.lower())
     
     tickers  = get_tickers("ALL")
     tgt_date  = datetime.strptime(target_date, "%Y-%m-%d")
@@ -363,8 +358,7 @@ def bollinger_bands(target_date:str, bollinger_side : str = 'upper', window: int
     if not isinstance(data.columns, pd.MultiIndex):
         return "DataFrame columns must be MultiIndex (PriceType, Ticker)"
     if target_date not in data.index:
-        return f"{target_date} is not in index!"
-    # target_date = pd.to_datetime(target_date)
+        return f"{target_date} : {kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
 
     data_adj_close = data.xs("Adj Close", level="Price", axis=1)
     data_close = data.xs("Adj Close", level="Price", axis=1)
@@ -443,7 +437,7 @@ def get_high_volume_stocks(target_date, ma_window, volume_ratio) -> Dict[str, in
     data_need_col = data.xs("Volume", level="Price", axis=1)
     data_need_col.index = data_need_col.index.strftime("%Y-%m-%d")  
     if target_date not in data_need_col.index:
-        return f"{target_date} is not in index!"
+        return f"{target_date} : {kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
 
     results = {}
     ma_df = moving_average(data_need_col,ma_window)

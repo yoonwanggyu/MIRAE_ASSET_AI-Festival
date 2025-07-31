@@ -2,9 +2,12 @@ import yfinance as yf, pandas as pd
 from datetime import datetime, timedelta
 import calendar
 from langchain.tools import tool
+import holidays
 
 from utils import *
 from data_fetcher import *
+
+kr_holidays = holidays.SouthKorea()
     
 field_kor_to_eng = {
     "시가": "Open",
@@ -55,7 +58,7 @@ def answer_stock_query(stock: str, target_date: str, field: str):
     data.index = data.index.strftime("%Y-%m-%d")  
     
     if target_date not in data.index:
-        return f"{target_date} : 해당 날짜의 데이터가 존재하지 않습니다."
+        return f"{target_date} : {kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
     
     if field == 'change_rate':
         idx_list = list(data.index)
@@ -107,7 +110,7 @@ def answer_market_index(target_date:str, market:str):
     data.index = data.index.strftime("%Y-%m-%d")
     
     if target_date not in data.index or data.empty:
-        return f"[{target_date}] {market} 지수 데이터가 없습니다."
+        return f"[{target_date}] {kr_holidays.get(target_date)}임으로 해당 날짜의 {market} 지수 데이터가 없습니다."
     
     close = float(data.loc[target_date, 'Close'])
     return f"[{target_date}] {market} 지수: {close:.2f}"
@@ -154,10 +157,11 @@ def answer_market_ranking(market:str, target_date:str, field:str, top_n:int, rea
         try:
             data_need_col = data.xs(need_col, level="Price", axis=1)
         except KeyError:
-            return f"[{target_date}] {need_col} 데이터 없음 (공휴일/비거래일 등)"
+            return f"[{target_date}] {kr_holidays.get(target_date)}임으로 해당 날짜의 {need_col} 데이터 없음"
+            
     else:
         if need_col not in data.columns:
-            return f"[{target_date}] {need_col} 데이터 없음 (공휴일/비거래일 등)"
+            return f"[{target_date}] {kr_holidays.get(target_date)}임으로 해당 날짜의 {need_col} 데이터 없음"
         data_need_col = data[need_col]
     data_need_col.index = data_need_col.index.strftime("%Y-%m-%d")  
 
@@ -179,7 +183,7 @@ def answer_market_ranking(market:str, target_date:str, field:str, top_n:int, rea
         series = pd.Series(change_rates)
     else:
         if target_date not in data_need_col.index:
-            return f"{target_date} 데이터 없음"
+            return f"[{target_date}] {kr_holidays.get(target_date)}임으로 해당 날짜의 데이터 없음"
         series = data_need_col.loc[target_date]
 
     if operator in ("<", "asc", "min"):
@@ -245,6 +249,8 @@ def answer_stock_compare(stock_name1:str, stock_name2:str, target_date:str, fiel
 
     data = get_stock_data([ticker1, ticker2], start_dt, end_dt,interval="1d")
     data.index = data.index.strftime("%Y-%m-%d")
+    if target_date not in data.index:
+        return f"{kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 없습니다."
     
     results = {}
     for name, ticker in zip([stock_name1, stock_name2], [ticker1, ticker2]):
@@ -345,9 +351,9 @@ def answer_stock_ranking(stock_name:str, target_date:str, field:str):
     else:
         volume_df = data[[field]]
     volume_df.index = volume_df.index.strftime("%Y-%m-%d")
-
+    
     if target_date not in volume_df.index:
-        return f"{target_date} 데이터가 없습니다."
+        return f"{kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 없습니다."
 
     vols = volume_df.loc[target_date]
     # 거래량 내림차순 정렬
@@ -401,9 +407,9 @@ def answer_market_stock_compare(stock_name:str, target_date:str):
         price_df = data.xs('Close', level='Price', axis=1)
         price_df.index = price_df.index.strftime("%Y-%m-%d")
         idx_list = list(price_df.index)
-        if target_date not in idx_list:
-            day_name = calendar.day_name[tgt_date.weekday()]
-            return f"{day_name} ({stock_name} 등락률 비교 데이터 없음(공휴일/비거래일 등))"
+        if target_date not in price_df.index:
+            return f"{kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 없습니다."
+        
         tgt_idx = idx_list.index(target_date)
         if tgt_idx == 0:
             return f"{target_date} 전일 데이터 없음"
@@ -469,10 +475,9 @@ def answer_market_ratio(stock_name:str, target_date:str):
         else:
             volume_df = data[['Volume']]
         volume_df.index = volume_df.index.strftime("%Y-%m-%d")
-
+        
         if target_date not in volume_df.index:
-            day_name = calendar.day_name[tgt_date.weekday()]
-            return f"{day_name} ({stock_name} 등락률 비교 데이터 없음(공휴일/비거래일 등))"
+            return f"{kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 없습니다."
 
         vols = volume_df.loc[target_date]
         # 해당 종목 거래량
@@ -519,8 +524,8 @@ def answer_market_compare(target_date:str,field:str):
         data = get_stock_data(ticker, start_dt, end_dt, interval="1d")
         data.index = data.index.strftime("%Y-%m-%d")
         if target_date not in data.index:
-            day_name = calendar.day_name[tgt_date.weekday()]
-            return f"{day_name} : ({target_date} 날짜 데이터 없음(공휴일/비거래일 등))"
+            return f"{kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 없습니다."
+        
 
         if field == "change_rate":
             idx_list = list(data.index)

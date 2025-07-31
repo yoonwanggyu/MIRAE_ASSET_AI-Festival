@@ -116,6 +116,16 @@ async def handle_task4_tools(state: ChatbotState):
     return ChatbotState(task_response=content,
                         messages=[("user", user_query ), ("assistant", content)])
 
+async def handle_task5_tools(state: ChatbotState):
+    """
+    Task4: 모호한 의미 해석 및 정량화 유도 응답 생성.
+    - LLM이 자체 판단으로 [redirect: TaskX] 태그를 포함하면 해당 Task로 연결 가능.
+    - tool은 호출하지 않음.
+    """
+    content = "hello"
+
+    return ChatbotState(task_response=content)
+
 async def agent_answer(state: ChatbotState):
     """
     Task 결과를 토대로 최종 Answer 생성 함수
