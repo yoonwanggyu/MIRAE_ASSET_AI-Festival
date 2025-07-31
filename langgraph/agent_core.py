@@ -16,6 +16,8 @@ def route_tasks(state: ChatbotState):
         return "handle_task3_tools"
     elif decision == "Task4":
         return "handle_task4_tools"
+    elif decision == "Task5:
+        return "handle_task5_tools"
     else:
         return "agent_answer"
 
@@ -28,6 +30,7 @@ workflow.add_node("handle_task1_tools", handle_task1_tools)
 workflow.add_node("handle_task2_tools", handle_task2_tools)
 workflow.add_node("handle_task3_tools", handle_task3_tools)
 workflow.add_node("handle_task4_tools", handle_task4_tools)
+workflow.add_node("handle_task5_tools", handle_task5_tools)
 workflow.add_node("agent_answer", agent_answer)
 
 # 엣지(연결) 설정
@@ -42,6 +45,7 @@ workflow.add_conditional_edges(
         "handle_task2_tools": "handle_task2_tools",
         "handle_task3_tools": "handle_task3_tools",
         "handle_task4_tools": "handle_task4_tools",
+        "handle_task5_tools": "handle_task5_tools",
         "agent_answer": "agent_answer", # Task4 등 바로 답변으로 가는 경우
     }
 )
@@ -51,6 +55,7 @@ workflow.add_edge("handle_task1_tools", "agent_answer")
 workflow.add_edge("handle_task2_tools", "agent_answer")
 workflow.add_edge("handle_task3_tools", "agent_answer")
 workflow.add_edge("handle_task4_tools", END)
+workflow.add_edge("handle_task5_tools", "agent_answer")
 workflow.add_edge("agent_answer", END)
 
 # 그래프 컴파일
