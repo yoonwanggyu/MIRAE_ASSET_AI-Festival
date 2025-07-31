@@ -3,10 +3,14 @@ import pandas as pd
 from typing import List, Dict, Literal
 from datetime import datetime, timedelta
 from langchain.tools import tool
+import numpy as np
 
 from utils import *
 from data_fetcher import *
-    
+import holidays
+
+kr_holidays = holidays.SouthKorea()
+
 def moving_average(df: pd.DataFrame, window: int, status : str = 'mean') -> pd.DataFrame:
     """
     이동평균선 구하는 함수
@@ -26,29 +30,25 @@ def calc_rsi_df(data: pd.DataFrame, period: int = 14) -> pd.DataFrame:
         loss = -delta.clip(upper=0)
         avg_gain = gain.ewm(alpha=1/period, adjust=False).mean()
         avg_loss = loss.ewm(alpha=1/period, adjust=False).mean()
-        rs = avg_gain / avg_loss
+        # 0으로 나누기 방지
+        rs = avg_gain / avg_loss.replace(0, np.nan)
         rsi = 100 - (100 / (1 + rs))
         return rsi
+        # rs = avg_gain / avg_loss
+        # rsi = 100 - (100 / (1 + rs))
+        # return rsi
     return data.apply(rsi_one, axis=0)
 
-@tool("rsi", description="특정 날짜에 여러 종목의 RSI 값을 계산해, 과매수/과매도 조건에 맞는 종목을 필터링합니다.")
-def rsi(data: pd.DataFrame, target_date, threshold, operator) -> Dict[str, float]:
+@tool("rsi", description="특정 날짜에 여러 종목의 RSI 값을 계산해, 과매수/과매도 조건에 맞는 종목을 필터링합니다. operator는 반드시 '>='와 '<=' 중 하나만 입력하세요!")
+def rsi(target_date:str, threshold:int, operator:str) -> Dict[str, float]:
     """
     [RSI 기준 종목 필터링 함수]
-    여러 종목의 주가 데이터(DataFrame)에서 특정 날짜의 RSI(상대강도지수)를 계산한 뒤, 
+    여러 종목의 주가 데이터에서 특정 날짜의 RSI(상대강도지수)를 계산한 뒤, 
     threshold(임계값)과 operator 조건(>=, <= 등)에 따라 조건을 만족하는 종목만 반환합니다.
     
     Args:
-        data (pd.DataFrame): 
-            - index: 일자 (str 또는 Timestamp)
-            - columns: 종목(티커 또는 종목명)
-            - 각 셀: 종가 또는 원하는 가격 시계열
-            - 예시:
-                index        005930.KS   035720.KQ
-                2025-01-01   65200       93400
-                ...
         target_date (str): 
-            - 조회할 날짜 (YYYY-MM-DD 형식, DataFrame index와 일치해야 함)
+            - 조회할 날짜 (YYYY-MM-DD 형식)
         threshold (float): 
             - RSI 임계값 (예: 80, 30 등)
             - 과매수(>=80), 과매도(<=30) 탐지에 사용
@@ -67,28 +67,178 @@ def rsi(data: pd.DataFrame, target_date, threshold, operator) -> Dict[str, float
         - DataFrame에 해당 날짜 index가 없는 경우 안내 메시지를 반환합니다.
 
     예시 사용:
-        >>> result = rsi(df, target_date="2025-01-10", threshold=80, operator=">=")
-        >>> print(result)  # {'005930.KS': 82.6, ...}
+    - "2024-11-21에 RSI가 25 이하인 과매도 종목을 알려줘"
+    >>> rsi(target_date="2024-11-21", threshold=25, operator="<=")
+    - "2024-08-30에 RSI가 80 이상인 과매수 종목을 알려줘"
+    >>> rsi(target_date="2024-08-30", threshold=80, operator="<=")
     """
-    rsi_df = calc_rsi_df(data)
+    print(threshold)
+    print(operator)
 
+    tgt_date  = datetime.strptime(target_date, "%Y-%m-%d")
+    tickers  = get_tickers("ALL", tgt_date)
+    start_dt  = (tgt_date - timedelta(days=200)).strftime("%Y-%m-%d")
+    end_dt    = (tgt_date + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    data = get_historical_data(tickers, start_dt, end_dt)
+    # Redis 데이터는 Price 레벨이 없으므로 직접 Close 컬럼 사용
+    if isinstance(data.columns, pd.MultiIndex) and 'Price' in data.columns.get_level_values(0):
+        data_need_col = data.xs("Adj Close", level="Price", axis=1)
+    else:
+        # Redis 데이터 구조: (Ticker, Field) 형태이므로 level=1로 접근
+        try:
+            data_need_col = data.xs("Close", level=1, axis=1)
+        except KeyError:
+            # level=1에서 찾을 수 없으면 level=0에서 시도
+            data_need_col = data.xs("Close", level=0, axis=1)
+
+    rsi_df = calc_rsi_df(data_need_col)
+    rsi_df.index = rsi_df.index.strftime("%Y-%m-%d")  
+    
     if target_date not in rsi_df.index:
-        return f"{target_date} is not in RSI DataFrame index"
+        return f"{target_date} : {kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
 
     rsi_on_date = rsi_df.loc[target_date]
 
+    # NaN 값 제거
+    rsi_on_date = rsi_on_date.dropna()
+
     if operator == "<=":
         filtered = rsi_on_date[rsi_on_date <= threshold]
+        sort_asc = True
     else:
         filtered = rsi_on_date[rsi_on_date >= threshold]
-    return filtered.to_dict()
+        sort_asc = False
+    result = filtered.to_dict()
+    rsi_stock_name = {}
+    for ticker,value in result.items():
+        stock_name = ticker_to_name(ticker, tgt_date)
+        rsi_stock_name[stock_name] = round(value,2)
 
-def detect_cross(data: pd.DataFrame, stock_name, start_date, end_date, cross_type, short: int = 5, long: int = 20) -> Dict[str, float]:
+    sorted_dict = dict(sorted(rsi_stock_name.items(), key=lambda x: x[1], reverse=not sort_asc))
+    return sorted_dict
+
+@tool ("detect_cross", description="여러 종목 또는 단일 종목의 골든/데드크로스 발생 횟수 또는 종목명을 반환합니다. cross_type은 반드시 'golden','dead','all' 세 개 중 하나만 입력하세요!")
+def detect_cross(start_date:str, end_date:str, cross_type:str, stock_name:str = None, short: int = 5, long: int = 20) -> Dict[str, float]:
     """
-    골든/데드크로스 구해서 질문에 대한 정답 내뱉는 함수
+    [이동평균선(MA) 교차 신호(골든/데드크로스) 탐지 함수]
+
+    여러 종목 또는 단일 종목의 지정된 기간(start_date ~ end_date) 내에 골든크로스(단기선이 장기선 위로 돌파) / 데드크로스(반대) 발생 횟수 또는 종목명을 반환합니다.
+
+    Args:
+        stock_name (str, optional): 
+            - 분석할 특정 종목명(예: "삼성전자")  
+            - None 
+        start_date (str): 
+            - 분석 시작 날짜(YYYY-MM-DD)
+        end_date (str): 
+            - 분석 종료 날짜(YYYY-MM-DD)
+        cross_type (str): 
+            - "golden": 골든크로스만
+            - "dead": 데드크로스만
+            - "all": 둘 다
+    Returns:
+        dict:  
+            - stock_name이 지정된 경우: {'golden': N, 'dead': M} (N/M은 각 신호 횟수)
+            - stock_name이 없으면: {티커: 신호횟수/딕셔너리, ...}
+                예: {'005930.KS': {'golden': 2, 'dead': 1}, ...}
+            - 신호가 없는 경우 빈 dict
+
+    Note:
+        - 골든크로스: 단기 MA가 장기 MA를 아래→위로 돌파
+        - 데드크로스: 단기 MA가 장기 MA를 위→아래로 돌파
+        - cross_type = "all"이면 두 신호 모두 카운트
+        - stock_name이 None/""이면 전체 종목 대상으로 계산 후, 
+          신호가 발생한 종목만 반환
+    예시 사용:
+    - "2025-02-24부터 2025-03-26까지 데드크로스가 발생한 종목을 알려줘"
+    >>> detect_cross(stock_name=None,start_date="2025-02-24",end_date="2025-03-26",cross_type="dead")
+    - "웨이비스는 2024-06-01부터 2025-06-30까지 데드크로스 또는 골든크로스가 몇번 발생했어?"
+    >>> detect_cross(stock_name="웨이비스",start_date="2024-06-01",end_date="2025-06-30",cross_type="all")
+    - "TP는 2024-06-01부터 2025-06-30까지 골든크로스가 몇번 발생했어?"
+    >>> detect_cross(stock_name="TP",start_date="2024-06-01",end_date="2025-06-30",cross_type="golden")
     """
-    sma = moving_average(data, short)   
-    lma = moving_average(data, long)    
+    print(stock_name)
+    print(cross_type)
+
+    start_date  = datetime.strptime(start_date, "%Y-%m-%d")
+    end_date = datetime.strptime(end_date, "%Y-%m-%d")
+    tickers  = get_tickers("ALL", start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
+    
+    start_dt = (start_date - timedelta(days=40)).strftime("%Y-%m-%d")
+    end_dt    = (end_date + timedelta(days=1)).strftime("%Y-%m-%d") 
+
+    if stock_name and stock_name.strip():
+        ticker = name_to_ticker(stock_name, start_dt)
+        data = get_historical_data([ticker], start_dt, end_dt)
+        # Redis 데이터는 Price 레벨이 없으므로 직접 Close 컬럼 사용
+        if isinstance(data.columns, pd.MultiIndex) and 'Price' in data.columns.get_level_values(0):
+            data_need_col = data.xs("Adj Close", level="Price", axis=1)
+        else:
+            # Redis 데이터 구조: (Ticker, Field) 형태이므로 level=1로 접근
+            try:
+                data_need_col = data.xs("Close", level=1, axis=1)
+            except KeyError:
+                # level=1에서 못 찾으면 level=0에서 시도
+                data_need_col = data.xs("Close", level=0, axis=1)
+
+        sma = moving_average(data_need_col, short)   
+        lma = moving_average(data_need_col, long)    
+
+        golden_cross = (sma >= lma) & (sma.shift(1) < lma.shift(1))
+        dead_cross = (sma <= lma) & (sma.shift(1) > lma.shift(1))
+
+        if start_date and end_date:
+            idx = (data.index >= pd.to_datetime(start_date)) & (data.index <= pd.to_datetime(end_date))
+        else:
+            idx = slice(None)
+
+        out = {}
+        golden_dates = golden_cross[ticker][idx][golden_cross[ticker][idx]].index.tolist()
+        dead_dates   = dead_cross[ticker][idx][dead_cross[ticker][idx]].index.tolist()
+
+        if cross_type == "golden":
+            if len(golden_dates) > 0:
+                out["golden"] = len(golden_dates)
+        elif cross_type == "dead":
+            if len(dead_dates) > 0:
+                out["dead"] = len(dead_dates)
+        else:  
+            if len(golden_dates) > 0:
+                out["golden"] = len(golden_dates)
+            if len(dead_dates) > 0:
+                out["dead"] = len(dead_dates)
+        return out
+    else:
+        data = get_historical_data(tickers, start_dt, end_dt)
+    
+    # 디버깅: 데이터 구조 확인
+    print(f"DEBUG: task3_tools: DataFrame shape: {data.shape}")
+    print(f"DEBUG: task3_tools: DataFrame columns type: {type(data.columns)}")
+    print(f"DEBUG: task3_tools: DataFrame columns: {data.columns.tolist()[:10]}...")  # 처음 10개만 출력
+    
+    # 빈 DataFrame 체크
+    if data.empty:
+        print(f"DEBUG: task3_tools: DataFrame is empty. Returning empty result.")
+        return {}
+    
+    # Redis 데이터는 Price 레벨이 없으므로 직접 Close 컬럼 사용
+    if isinstance(data.columns, pd.MultiIndex) and 'Price' in data.columns.get_level_values(0):
+        print(f"DEBUG: task3_tools: Using yfinance structure (Price level)")
+        data_need_col = data.xs("Adj Close", level="Price", axis=1)
+    else:
+        print(f"DEBUG: task3_tools: Using Redis structure")
+        # Redis 데이터 구조: (Ticker, Field) 형태이므로 level=1로 접근
+        try:
+            print(f"DEBUG: task3_tools: Trying level=1 for Close")
+            data_need_col = data.xs("Close", level=1, axis=1)
+        except KeyError:
+            print(f"DEBUG: task3_tools: level=1 failed, trying level=0")
+            # level=1에서 못 찾으면 level=0에서 시도
+            data_need_col = data.xs("Close", level=0, axis=1)
+
+    sma = moving_average(data_need_col, short)   
+    lma = moving_average(data_need_col, long)    
 
     golden_cross = (sma >= lma) & (sma.shift(1) < lma.shift(1))
     dead_cross = (sma <= lma) & (sma.shift(1) > lma.shift(1))
@@ -97,60 +247,103 @@ def detect_cross(data: pd.DataFrame, stock_name, start_date, end_date, cross_typ
         idx = (data.index >= pd.to_datetime(start_date)) & (data.index <= pd.to_datetime(end_date))
     else:
         idx = slice(None)
-
-    if stock_name:
-        result = {}
-        golden_dates = golden_cross[stock_name][idx][golden_cross[stock_name][idx]].index.tolist()
-        dead_dates   = dead_cross[stock_name][idx][dead_cross[stock_name][idx]].index.tolist()
+    out = {}
+    for ticker in data_need_col.columns:
+        golden_dates = golden_cross[ticker][idx][golden_cross[ticker][idx]].index
+        dead_dates   = dead_cross[ticker][idx][dead_cross[ticker][idx]].index
 
         if cross_type == "golden":
             if len(golden_dates) > 0:
-                result["golden"] = len(golden_dates)
+                out[ticker] = len(golden_dates)
         elif cross_type == "dead":
             if len(dead_dates) > 0:
-                result["dead"] = len(dead_dates)
+                out[ticker] = len(dead_dates)
         else:  
+            info = {}
             if len(golden_dates) > 0:
-                result["golden"] = len(golden_dates)
+                info['golden'] = len(golden_dates)
             if len(dead_dates) > 0:
-                result["dead"] = len(dead_dates)
-        return result
-    else:
-        out = {}
-        for ticker in data.columns:
-            golden_dates = golden_cross[ticker][idx][golden_cross[ticker][idx]].index
-            dead_dates   = dead_cross[ticker][idx][dead_cross[ticker][idx]].index
+                info['dead'] = len(dead_dates)
+            if info:
+                out[ticker] = info
+    stock_name_dict = {}
+    for ticker, value in out.items():
+        stock_name = ticker_to_name(ticker, start_dt)
+        stock_name_dict[stock_name] = value
+    
+    return stock_name_dict
 
-            if cross_type == "golden":
-                if len(golden_dates) > 0:
-                    out[ticker] = len(golden_dates)
-            elif cross_type == "dead":
-                if len(dead_dates) > 0:
-                    out[ticker] = len(dead_dates)
-            else:  
-                info = {}
-                if len(golden_dates) > 0:
-                    info['golden'] = len(golden_dates)
-                if len(dead_dates) > 0:
-                    info['dead'] = len(dead_dates)
-                if info:
-                    out[ticker] = info
-        return out
+@tool("price_vs_adj_ma",description="특정 날짜에 여러 종목의 종가가 N일 이동평균선(MA) 대비 X% 이상 돌파 또는 이하인 종목을 필터링합니다.")
+def price_vs_adj_ma(target_date:str, ma_window: int, pct: float,operator: Literal[">=","<="] = ">=") -> Dict[str, float]:
+    """
+    [이동평균선(MA) 대비 돌파/이탈 종목 탐지 함수]
 
-def price_vs_adj_ma(data: pd.DataFrame, target_date, ma_window: int, pct: float, price_column: str, operator: Literal[">=","<="] = ">=") -> Dict[str, float]:
+    모든 종목의 종가 데이터를 기준으로,
+    지정한 날짜(target_date)에 N일 이동평균선(MA) 대비 가격 변화율이 
+    X%(pct) 이상(혹은 이하)인 종목만 필터링하여 반환합니다.
+
+    Args:
+        target_date (str): 
+            - 조회 날짜 (YYYY-MM-DD)
+        ma_window (int): 
+            - 이동평균 기간(일). (5, 20, 60)
+        pct (float): 
+            - 이동평균 대비 변동률 임계값(%, 예: 3.0)
+        operator (str, optional): 
+            - 비교 연산자(">=": 이상, "<=": 이하) (기본값: ">=")
+
+    Returns:
+        dict: 
+            - {티커: 변화율(%)}, 예: {"005930.KS": "3.21%", ...}
+            - 조건에 맞는 종목이 없으면 빈 dict
+
+    Note:
+        - operator가 ">="이면 MA 대비 pct% 이상 돌파, "<="이면 pct% 이하 이탈 탐지
+
+    예시 사용:
+    - "2024-10-07에 종가가 60일 이동평균보다 3% 이상 높은 종목을 알려줘"
+    >>> price_vs_adj_ma(target_date="2024-10-07", ma_window=60, pct=3.0, operator=">=")
+    - "2025-03-06에 종가가 20일 이동평균보다 5% 이상 높은 종목을 알려줘"
+    >>> price_vs_adj_ma(target_date="2025-03-06", ma_window=20, pct=5.0, operator=">=")
+    - "2024-08-05에 종가가 5일 이동평균보다 1% 이상 높은 종목을 알려줘"
+    >>> price_vs_adj_ma(target_date="2024-08-05", ma_window=5, pct=1.0, operator=">=")
     """
-    이동평균 대비 퍼센트 구해 질문에 대한 정답 내뱉는 함수
-    """
+    
+    tgt_date  = datetime.strptime(target_date, "%Y-%m-%d")
+    tickers  = get_tickers("ALL", tgt_date)
+    if ma_window == 5:
+        extra_date = 20
+    elif ma_window == 20:
+        extra_date = 40  
+    else:  
+        extra_date = 110
+    start_dt  = (tgt_date - timedelta(days=extra_date)).strftime("%Y-%m-%d")
+    end_dt    = (tgt_date + timedelta(days=1)).strftime("%Y-%m-%d") 
+
+    data = get_historical_data(tickers, start_dt, end_dt)
+    data.index = data.index.strftime("%Y-%m-%d")  
+    
     if not isinstance(data.columns, pd.MultiIndex):
         return "DataFrame columns must be MultiIndex (PriceType, Ticker)"
     if target_date not in data.index:
-        return f"{target_date} is not in index!"
+        return f"{target_date} : {kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
 
     results = {}
-    target_date = pd.to_datetime(target_date)
+    # target_date = pd.to_datetime(target_date)
 
-    data_close = data.xs(price_column, level="Price", axis=1)
-    data_adj_close = data.xs("Adj Close", level="Price", axis=1)
+    # Redis 데이터는 Price 레벨이 없으므로 직접 Close 컬럼 사용
+    if isinstance(data.columns, pd.MultiIndex) and 'Price' in data.columns.get_level_values(0):
+        data_close = data.xs("Close", level="Price", axis=1)
+        data_adj_close = data.xs("Adj Close", level="Price", axis=1)
+    else:
+        # Redis 데이터 구조: (Ticker, Field) 형태이므로 level=1로 접근
+        try:
+            data_close = data.xs("Close", level=1, axis=1)
+            data_adj_close = data.xs("Close", level=1, axis=1)  # Redis에는 Adj Close가 없으므로 Close 사용
+        except KeyError:
+            # level=1에서 못 찾으면 level=0에서 시도
+            data_close = data.xs("Close", level=0, axis=1)
+            data_adj_close = data.xs("Close", level=0, axis=1)  # Redis에는 Adj Close가 없으므로 Close 사용
 
     adj_ma_df = moving_average(data_adj_close, ma_window)
     
@@ -168,22 +361,81 @@ def price_vs_adj_ma(data: pd.DataFrame, target_date, ma_window: int, pct: float,
         elif operator == "<=" and diff_pct <= pct:
             results[ticker] = f"{round(diff_pct, 2)}%"
         
-    return results
+    stock_name_dict = {}
+    for ticker, percentage in results.items():
+        stock_name = ticker_to_name(ticker, tgt_date)
+        stock_name_dict[stock_name] = percentage
+    
+    sorted_dict = dict(sorted(stock_name_dict.items(),key=lambda x: float(str(x[1]).replace('%','')),reverse=True))
+    return sorted_dict
 
-def bollinger_bands(data: pd.DataFrame, target_date, bollinger_side : str, window: int = 20, std_dev: float = 2.0) -> Dict[str, int]:
+@tool("bollinger_bands",description="특정 날짜에 여러 종목의 종가가 볼린저밴드 상단(upper) 또는 하단(lower)을 돌파한 종목만 필터링합니다. bollinger_side는 반드시 'upper' 또는 'lower'만 입력하세요!")
+def bollinger_bands(target_date:str, bollinger_side : str = 'upper', window: int = 20, std_dev: float = 2.0) -> Dict[str, int]:
     """
-    볼린저밴드 구해 질문에 대한 정답 내뱉는 함수
+    [볼린저밴드 상/하단 돌파 종목 탐지 함수]
+
+    여러 종목의 종가 데이터를 기준으로,
+    지정한 날짜(target_date)에 볼린저밴드 상단(upper) 또는 하단(lower)을 돌파한(혹은 이탈한) 종목만 반환합니다.
+
+    Args:
+        target_date (str): 
+            - 조회 날짜(YYYY-MM-DD)
+        bollinger_side (str / 반드시 다음 두 가지만 입력하세요: 
+            - "upper"
+            - "lower"
+
+    Returns:
+        dict: 
+            - {티커: 종가}, 예: {"005930.KS": 84200, ...}
+            - 조건을 만족하는 종목이 없으면 빈 dict
+            - DataFrame 구조 또는 날짜 미일치시 에러 메시지(str) 반환
+
+    Note:
+        - 상단 돌파: 종가가 upper band 이상, 하단 돌파: 종가가 lower band 이하
+        - DataFrame 멀티인덱스 또는 날짜 누락 등 예외 상황 안내 포함
+
+    예시 사용:
+    - "2024-11-21에 볼린저밴드 상단을 돌파한 종목을 알려줘"
+    >>> bollinger_bands(target_date="2024-11-21", bollinger_side="upper")
+    - "2024-11-18에 볼린저 밴드 하단에 터치한 종목을 알려줘"
+    >>> bollinger_bands(target_date="2024-11-18", bollinger_side="lower")
     """
+    print(target_date)
+    print(bollinger_side)
+
+    # side_map = {
+    #     "상단": "upper", "상": "upper", "top": "upper", "upper": "upper",
+    #     "하단": "lower", "하": "lower", "bottom": "lower", "lower": "lower"
+    # }
+    # bollinger_side = side_map.get(bollinger_side.lower(), bollinger_side.lower())
+    
+
+    tgt_date  = datetime.strptime(target_date, "%Y-%m-%d")
+    tickers  = get_tickers("ALL", tgt_date)
+    start_dt  = (tgt_date - timedelta(days=40)).strftime("%Y-%m-%d")
+    end_dt    = (tgt_date + timedelta(days=1)).strftime("%Y-%m-%d") 
+
+    data = get_historical_data(tickers, start_dt, end_dt)
+    data.index = data.index.strftime("%Y-%m-%d")  
     if not isinstance(data.columns, pd.MultiIndex):
         return "DataFrame columns must be MultiIndex (PriceType, Ticker)"
     if target_date not in data.index:
-        return f"{target_date} is not in index!"
+        return f"{target_date} : {kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
+    # target_date = pd.to_datetime(target_date)
 
-    results = {}
-    target_date = pd.to_datetime(target_date)
-
-    data_adj_close = data.xs("Adj Close", level="Price", axis=1)
-    data_close = data.xs("Adj Close", level="Price", axis=1)
+    # Redis 데이터는 Price 레벨이 없으므로 직접 Close 컬럼 사용
+    if isinstance(data.columns, pd.MultiIndex) and 'Price' in data.columns.get_level_values(0):
+        data_adj_close = data.xs("Adj Close", level="Price", axis=1)
+        data_close = data.xs("Adj Close", level="Price", axis=1)
+    else:
+        # Redis 데이터 구조: (Ticker, Field) 형태이므로 level=1로 접근
+        try:
+            data_adj_close = data.xs("Close", level=1, axis=1)
+            data_close = data.xs("Close", level=1, axis=1)  # Redis에는 Adj Close가 없으므로 Close 사용
+        except KeyError:
+            # level=1에서 못 찾으면 level=0에서 시도
+            data_adj_close = data.xs("Close", level=0, axis=1)
+            data_close = data.xs("Close", level=0, axis=1)  # Redis에는 Adj Close가 없으므로 Close 사용
 
     results = {}
     for ticker in data_adj_close.columns:
@@ -203,22 +455,77 @@ def bollinger_bands(data: pd.DataFrame, target_date, bollinger_side : str, windo
             results[ticker] = int(round(float(close_val)))
         elif bollinger_side == "lower" and close_val <= lower_val:
             results[ticker] = int(round(float(close_val)))
+    
+    stock_bollinger_dict = {}
+    for ticker, close in results.items():
+        stock_name = ticker_to_name(ticker, tgt_date)
+        stock_bollinger_dict[stock_name] = close
 
-    return results
+    sorted_dict = dict(sorted(stock_bollinger_dict.items(), key=lambda x: x[1], reverse=True))
+    return sorted_dict
 
-def get_high_volume_stocks(df: pd.DataFrame, target_date, ma_window, volume_ratio) -> Dict[str, int]:
+@tool("get_high_volume_stocks",description="특정 날짜에 여러 종목의 거래량이 N일 평균 대비 X% 이상 급증한 종목을 필터링합니다.")
+def get_high_volume_stocks(target_date, ma_window, volume_ratio) -> Dict[str, int]:
     """
-    거래량 급증 종목 구해 질문에 대한 정답 내뱉는 함수
+    [거래량 급증 종목 필터링 함수]
+
+    여러 종목의 거래량 데이터를 기반으로,
+    지정한 날짜(target_date)에 N일 이동평균(ma_window) 대비
+    거래량이 volume_ratio(%) 이상 증가한 종목만 필터링하여 반환합니다.
+
+    Args:
+        target_date (str): 
+            - 조회할 날짜(YYYY-MM-DD)
+        ma_window (int): 
+            - 이동평균 기간(일, 예: 5, 20)
+        volume_ratio (float): 
+            - 이동평균 대비 거래량 증가 임계값(%, 예: 100, 300)
+
+    Returns:
+        dict: 
+            - {티커: 증가율(%)}, 예: {"005930.KS": 155, ...}
+            - 조건을 만족하는 종목이 없으면 빈 dict 반환
+            - 날짜 미포함 등 예외 상황은 str 메시지 반환
+
+    Note:
+        - DataFrame에 날짜가 없으면 에러 메시지 반환
+
+    예시 사용:
+    - "2024-11-06에 거래량이 20일 평균 대비 100% 이상 급증한 종목을 알려줘"
+    >>> get_high_volume_stocks(target_date="2024-11-06", ma_window=20, volume_ratio=100)
+    - "2025-02-17에 거래량이 20일 평균 대비 300% 이상 급증한 종목을 알려줘"
+    >>> get_high_volume_stocks(target_date="2025-02-17", ma_window=20, volume_ratio=300)
     """
+    tgt_date  = datetime.strptime(target_date, "%Y-%m-%d")
+    tickers  = get_tickers("ALL", tgt_date)
+    if ma_window == 5:
+        extra_date = 20
+    elif ma_window == 20:
+        extra_date = 40  
+    else:  
+        extra_date = 110
+    start_dt  = (tgt_date - timedelta(days=extra_date)).strftime("%Y-%m-%d")
+    end_dt    = (tgt_date + timedelta(days=1)).strftime("%Y-%m-%d") 
+    data = get_historical_data(tickers, start_dt, end_dt)
+    # Redis 데이터는 Price 레벨이 없으므로 직접 Volume 컬럼 사용
+    if isinstance(data.columns, pd.MultiIndex) and 'Price' in data.columns.get_level_values(0):
+        data_need_col = data.xs("Volume", level="Price", axis=1)
+    else:
+        # Redis 데이터 구조: (Ticker, Field) 형태이므로 level=1로 접근
+        try:
+            data_need_col = data.xs("Volume", level=1, axis=1)
+        except KeyError:
+            # level=1에서 못 찾으면 level=0에서 시도
+            data_need_col = data.xs("Volume", level=0, axis=1)
+    data_need_col.index = data_need_col.index.strftime("%Y-%m-%d")  
+    if target_date not in data_need_col.index:
+        return f"{target_date} : {kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
 
     results = {}
-    ma_df = moving_average(df,ma_window)
-    
-    if target_date not in df.index:
-        return f"{target_date} is not in index!"
+    ma_df = moving_average(data_need_col,ma_window)
 
-    for ticker in df.columns:
-        today_vol = df.loc[target_date, ticker]
+    for ticker in data_need_col.columns:
+        today_vol = data_need_col.loc[target_date, ticker]
         ma_vol = ma_df.loc[target_date, ticker]
 
         if pd.isna(ma_vol) or ma_vol == 0:
@@ -227,145 +534,13 @@ def get_high_volume_stocks(df: pd.DataFrame, target_date, ma_window, volume_rati
 
         if increase_pct >= volume_ratio:
             results[ticker] = int(round(float(increase_pct)))
-    return results
 
-# Type에 따른 함수 호출
-FIELD_FUNC = {
-    "시그널감지_RSI_oversold": rsi,
-    "시그널감지_RSI_overbought": rsi,
-    "시그널횟수_크로스_통합": detect_cross,
-    "시그널횟수_데드크로스": detect_cross,
-    "시그널횟수_골든크로스": detect_cross,
-    "시그널종목_데드크로스_기간": detect_cross,
-    "시그널종목_골든크로스_기간": detect_cross,
-    "시그널감지_MA60돌파" : price_vs_adj_ma,
-    "시그널감지_MA5돌파" : price_vs_adj_ma,
-    "시그널감지_MA20돌파" : price_vs_adj_ma,
-    "시그널감지_볼린저_upper" : bollinger_bands,
-    "시그널감지_볼린저_lower" : bollinger_bands,
-    "시그널감지_거래량급증" : get_high_volume_stocks
-}
+    stock_volume_dict = {}
+    for ticker, volume in results.items():
+        stock_name = ticker_to_name(ticker, tgt_date)
+        stock_volume_dict[stock_name] = volume
 
-def answer_task3(q: dict) -> List[str]:
-    """
-    q : LLM JSON 파싱 결과
-    반환 : task3 질문에 대한 답
-    """
+    sorted_dict = dict(sorted(stock_volume_dict.items(), key=lambda x: x[1], reverse=True))
+    return sorted_dict
 
-    tickers  = get_tickers(q)
-    if not tickers:
-        return []
-    
-    func = FIELD_FUNC[q["type"]]
-
-    if q['value'] != None:
-        value = int(q['value'])
-
-    if q['moving_average_line'] != None:
-        moving_value = int(q["moving_average_line"])
-
-    need_col = q['OHLCV']
-    
-    stock_name = q['stock_name']
-    if stock_name != None:
-        one_ticker = name_to_ticker[stock_name]
-    else:
-        one_ticker = None
-    
-    if q['target_date'] != None and q['moving_average_line'] == '14':
-        tgt_date  = datetime.strptime(q['target_date'], "%Y-%m-%d")
-        start_dt  = tgt_date - timedelta(days=100)
-        end_dt    = tgt_date + timedelta(days=1) 
-
-    elif q['target_date'] != None and q['moving_average_line'] in ("5","20","60"):
-        tgt_date  = datetime.strptime(q['target_date'], "%Y-%m-%d")
-        if moving_value == 5:
-            extra_date = 20
-        elif moving_value == 20:
-            extra_date = 40  
-        else:  
-            extra_date = 110
-        start_dt  = tgt_date - timedelta(days=extra_date)
-        end_dt    = tgt_date + timedelta(days=1) 
-
-    elif q['target_date'] != None :
-        tgt_date  = datetime.strptime(q['target_date'], "%Y-%m-%d")
-        start_dt  = tgt_date - timedelta(days=40)
-        end_dt    = tgt_date + timedelta(days=1) 
-    
-    else:
-        start_date  = datetime.strptime(q['start_date'], "%Y-%m-%d")
-        end_date = datetime.strptime(q['end_date'],"%Y-%m-%d")
-
-        start_dt = start_date - timedelta(days=40) 
-        end_dt    = end_date + timedelta(days=1) 
-
-    if stock_name != None:
-        data = yf.download(one_ticker, start_dt, end_dt, interval="1d", progress=False, threads=False, auto_adjust=False)
-    else:
-        data = download_in_batches(tickers, start_dt, end_dt, batch_size=200)
-    
-    if need_col != None:
-        data_need_col = data.xs(need_col, level="Price", axis=1)
-    else:
-        data_need_col = data.xs("Adj Close", level="Price", axis=1)
-
-    if q['type'] in ("시그널감지_RSI_oversold","시그널감지_RSI_overbought"):
-        rsi_results = func(data_need_col,q['target_date'], value, q['operator'])
-
-        rsi_stock_name = {}
-        for ticker,value in rsi_results.items():
-            clean_ticker = ticker.replace('.KS', '').replace('.KQ', '')
-            stock_name = ticker_to_name.get(clean_ticker, clean_ticker)
-            rsi_stock_name[stock_name] = round(value,2)
-
-        sorted_dict = dict(sorted(rsi_stock_name.items(), key=lambda x: x[1], reverse=True))
-        return sorted_dict
-
-    if q['type'] in ("시그널횟수_크로스_통합","시그널횟수_데드크로스","시그널횟수_골든크로스","시그널종목_데드크로스_기간","시그널종목_골든크로스_기간"):
-        cross_df = func(data_need_col,one_ticker,start_date,end_date,q['type_of_cross'])
-        if q.get('stock_name', None):
-            return cross_df
-        else:
-            stock_name_dict = {}
-            for ticker, value in cross_df.items():
-                clean_ticker = ticker.replace('.KS', '').replace('.KQ', '')
-                stock_name = ticker_to_name.get(clean_ticker, clean_ticker)
-                stock_name_dict[stock_name] = value
-            return stock_name_dict
-            
-    if q['type'] in ("시그널감지_MA60돌파", "시그널감지_MA5돌파", "시그널감지_MA20돌파"):
-        ma_result = func(data,q['target_date'],moving_value,value,need_col,q['operator'])
-        
-        stock_name_dict = {}
-        for ticker, percentage in ma_result.items():
-            clean_ticker = ticker.replace('.KS', '').replace('.KQ', '')
-            stock_name = ticker_to_name.get(clean_ticker, clean_ticker)
-            stock_name_dict[stock_name] = percentage
-        
-        sorted_dict = dict(sorted(stock_name_dict.items(),key=lambda x: float(str(x[1]).replace('%','')),reverse=True))
-        return sorted_dict
-    
-    if q['type'] in ("시그널감지_볼린저_upper", "시그널감지_볼린저_lower"):
-        bollinger = func(data,q['target_date'],q['bollinger_side'])
-
-        stock_bollinger_dict = {}
-        for ticker, close in bollinger.items():
-            clean_ticker = ticker.replace('.KS', '').replace('.KQ', '')
-            stock_name = ticker_to_name.get(clean_ticker, ticker)
-            stock_bollinger_dict[stock_name] = close
-
-        sorted_dict = dict(sorted(stock_bollinger_dict.items(), key=lambda x: x[1], reverse=True))
-        return sorted_dict
-
-    if q['type'] in ("시그널감지_거래량급증"):
-        volume_high = func(data_need_col, q['target_date'],moving_value,value)    
-
-        stock_volume_dict = {}
-        for ticker, volume in volume_high.items():
-            clean_ticker = ticker.replace('.KS', '').replace('.KQ', '')
-            stock_name = ticker_to_name.get(clean_ticker, ticker)
-            stock_volume_dict[stock_name] = volume
-
-        sorted_dict = dict(sorted(stock_volume_dict.items(), key=lambda x: x[1], reverse=True))
-        return sorted_dict
+task3_tools = [rsi, detect_cross, price_vs_adj_ma, bollinger_bands, get_high_volume_stocks]

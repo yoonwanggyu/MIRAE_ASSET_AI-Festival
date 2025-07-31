@@ -11,3 +11,6 @@ redis
 PyYAML
 
 python-dotenv
+holidays
+
+dart_fss
