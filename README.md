@@ -198,7 +198,7 @@ Task3_Tools = [rsi, detect_cross, price_vs_adj_ma, bollinger_bands, get_high_vol
 (예시 질문: “최근 많이 오른 주식 뭐야?” → “최근은 보통 30일 기준으로 판단합니다. ... 더 궁금하신가요?”)
 
 Tool 목록:
-Task5_Tools = [TASK5_FINAL_PROMPT]
+Task4_Tools = [TASK4_FINAL_PROMPT]
 ```
 
 ⚙️ **Task 5** – 투자 판단 진단 및 종합 분석
@@ -225,8 +225,6 @@ Task5_Tools = [TASK5_FINAL_PROMPT]
 -  자연어로 “현재 저평가인가?”, “리스크는 있는가?”, “지금 사도 되는가?”를 평가하고 “Fin문철 판결문”으로 마무리
 - 즉, 단순히 주식정보를 통해 기업을 판단하는 것이 아닌 "성장성 + 건전성 + 리스크" 등을 결합한 통합적 기업 분석 구조
 ```
-
-
 
 ## 🚀 API 사용법
 **1️⃣ 서버 기동**
