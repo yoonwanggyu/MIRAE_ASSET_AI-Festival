@@ -72,7 +72,7 @@
 - 목적: 사용자 질문을 적절한 Task로 분류
 - 구현: 프롬프트 엔지니어링을 통한 라우팅<br>
 
-⚙️ **Task Tools**
+⚙️ **Task Tools (Task1 ~ Task3)**
 - 통합: Langchain Tool 데코레이터를 활용하여 HyperClova X와 연동
 - 동작: HyperClova X가 사용자 질문을 분석하여 적합한 도구를 자동 선택 및 실행<br>
 - 구성: 각 Task 특성에 맞는 전용 도구 세트<br>
