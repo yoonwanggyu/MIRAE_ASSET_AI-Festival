@@ -36,7 +36,7 @@ DATE_RANGE = {
     "price":              1,
 }
 
-def apply_operator(df, operator, value, min_value=None, max_value=None):
+def apply_operator(series, operator, value, min_value=None, max_value=None):
     """
     데이터프레임에 operator 조건을 적용하는 함수
     """
