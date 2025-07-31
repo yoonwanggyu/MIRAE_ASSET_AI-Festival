@@ -1,10 +1,11 @@
-import re
+import re, requests, asyncio
 
 from langgraph.state import *
 from prompt import *
 from tools.task1_tools import *
 from tools.task2_tools import *
 from tools.task3_tools import *
+from tools.task5_tools import *
 from utils import *
 from langchain_naver import ChatClovaX
 
@@ -121,6 +122,59 @@ async def handle_task4_tools(state: ChatbotState):
     return ChatbotState(task_response=content,
                         messages=[("user", user_query ), ("assistant", content)])
 
+async def handle_task5_tools(state: ChatbotState):
+    """
+    Task5 투자 판단 분석 도구 함수
+    사용자 질문을 바탕으로 투자 분석에 필요한 도구들을 호출하여 종합적인 분석을 수행
+    """
+    user_query = state["question"]
+    api_key=state["api_key"]
+    
+    REQUEST_ID = f"req-{uuid.uuid4()}"
+    url = "https://clovastudio.stream.ntruss.com/testapp/v3/chat-completions/HCX-005"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "X-NCP-CLOVASTUDIO-REQUEST-ID": REQUEST_ID,
+        "Content-Type": "application/json"
+    }
+    data = {
+        "model": "HCX-005",
+        "messages": [
+            {"role": "system", "content": TASK5_TOOLS_PROMPT},
+            {"role": "user", "content": user_query}
+        ],
+        "tools": [{"type": "function", "function": s} for s in task5_functions],
+        "tool_choice": "auto"
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+    result = response.json()
+
+    tool_calls = result['result']['message']['toolCalls']
+    
+    all_outputs = {}
+    final_output = None
+
+    for call in tool_calls:
+        fn_name = call["function"]["name"]
+        args = call["function"]["arguments"]
+        
+        if isinstance(args, str):
+            args = json.loads(args)
+
+        py_func = task5_py_funcs.get(fn_name)
+        if py_func is None:
+            raise ValueError(f"Unsupported function: {fn_name}")
+
+        if asyncio.iscoroutinefunction(py_func):
+            out = await py_func(**args)
+        else:
+            out = await asyncio.to_thread(py_func, **args)
+        
+        all_outputs[fn_name] = out
+        final_output = out  
+
+    return ChatbotState(task_response=final_output)
 
 async def agent_answer(state: ChatbotState):
     """
@@ -129,9 +183,15 @@ async def agent_answer(state: ChatbotState):
     clova = ChatClovaX(api_key=state["api_key"], model="HCX-005", temperature=0.2)
     user_query = state["question"]
     task_response = state['task_response']
+    decision_task = state['decision_task']
 
-    prompt = FINAL_ANSWER_PROMPT.format(question = user_query,
+    if decision_task.lower() == 'task5':
+        prompt = TASK5_FINAL_PROMPT.format(question = user_query,
+                                          tool_result = task_response)
+    else:
+        prompt = FINAL_ANSWER_PROMPT.format(question = user_query,
                                         task_result = task_response)
+        
     messages = [("system", prompt)]
     llm_resp = await clova.ainvoke(messages)
     answer  = llm_resp.content.strip()
