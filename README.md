@@ -1,7 +1,7 @@
 <p align="center">
   <img src="사진/표지.png" alt="FIN" width="100%""/>
 
-<div align=center>
+<div align="center">
   
 **FIN문철**은 투자대법관으로서 정확한 주식 정보 조회와 <br>
 투자 판단 지표를 제공하여 사용자의 투자 의사결정을 지원합니다.
