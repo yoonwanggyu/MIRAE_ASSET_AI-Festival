@@ -122,59 +122,82 @@ async def handle_task4_tools(state: ChatbotState):
     return ChatbotState(task_response=content,
                         messages=[("user", user_query ), ("assistant", content)])
 
-async def handle_task5_tools(state: ChatbotState):
-    """
-    Task5 투자 판단 분석 도구 함수
-    사용자 질문을 바탕으로 투자 분석에 필요한 도구들을 호출하여 종합적인 분석을 수행
-    """
-    user_query = state["question"]
-    api_key=state["api_key"]
+
+def convert_numpy_types(obj):
+    """numpy 타입을 Python 기본 타입으로 변환"""
+    if isinstance(obj, np.float64):
+        return float(obj)
+    elif isinstance(obj, np.int64):
+        return int(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {k: convert_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(item) for item in obj]
+    else:
+        return obj
     
-    REQUEST_ID = f"req-{uuid.uuid4()}"
-    url = "https://clovastudio.stream.ntruss.com/testapp/v3/chat-completions/HCX-005"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "X-NCP-CLOVASTUDIO-REQUEST-ID": REQUEST_ID,
-        "Content-Type": "application/json"
-    }
+
+async def handle_task5_tools(state: ChatbotState):
+    user_query = state["question"]
+    
     data = {
         "model": "HCX-005",
         "messages": [
-            {"role": "system", "content": TASK5_TOOLS_PROMPT},
+            {"role": "system", "content": TASK5_TOOLS_PROMPT.format(
+                question=user_query,
+                tool_result=""
+            )},
             {"role": "user", "content": user_query}
         ],
-        "tools": [{"type": "function", "function": s} for s in task5_functions],
+        "tools": task5_functions,
         "tool_choice": "auto"
     }
 
     response = requests.post(url, headers=headers, json=data)
-    result = response.json()
 
-    tool_calls = result['result']['message']['toolCalls']
+    try:
+        result = response.json()
+    except Exception as e:
+        raise ValueError(f"[JSON 파싱 오류] {e}\n응답 원문: {response.text}")
+
+    # ✅ 응답 구조 점검
+    if not result or "result" not in result or result["result"] is None:
+        raise ValueError(f"[API 응답 오류] 'result' 없음 또는 None\nresult: {result}")
     
+    if "message" not in result["result"] or "toolCalls" not in result["result"]["message"]:
+        raise ValueError(f"[API 응답 오류] 'message' 또는 'toolCalls' 없음\nresult: {result['result']}")
+
+    tool_calls = result["result"]["message"]["toolCalls"]
+
     all_outputs = {}
     final_output = None
 
     for call in tool_calls:
         fn_name = call["function"]["name"]
         args = call["function"]["arguments"]
-        
         if isinstance(args, str):
             args = json.loads(args)
 
         py_func = task5_py_funcs.get(fn_name)
         if py_func is None:
-            raise ValueError(f"Unsupported function: {fn_name}")
+            raise ValueError(f"지원하지 않는 함수: {fn_name}")
 
         if asyncio.iscoroutinefunction(py_func):
             out = await py_func(**args)
         else:
             out = await asyncio.to_thread(py_func, **args)
-        
-        all_outputs[fn_name] = out
-        final_output = out  
 
-    return ChatbotState(task_response=final_output)
+        out = convert_numpy_types(out)
+        all_outputs[fn_name] = out
+        final_output = out
+
+    return ChatbotState(
+        tools=convert_numpy_types(result),
+        tools_response=convert_numpy_types(final_output),
+        all_tool_outputs=convert_numpy_types(all_outputs)
+    )
 
 async def agent_answer(state: ChatbotState):
     """
