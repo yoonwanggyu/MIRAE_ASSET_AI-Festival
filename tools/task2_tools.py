@@ -4,6 +4,9 @@ from typing import Dict, Callable, List
 from langchain.tools import tool
 import pandas as pd
 import json
+import holidays
+
+kr_holidays = holidays.SouthKorea()
 
 from utils import *
 from data_fetcher import *
@@ -163,7 +166,7 @@ def answer_task2(q: dict) -> List[str]:
             
             if data.empty:
                 print(f"DEBUG: No historical data downloaded for '{market_str}' from {start_dt} to {end_dt}.")
-                return {"result": f"[{target_date_str}] {market_str} 시장 데이터를 조회할 수 없습니다."}
+                return f"공휴일임으로 해당 날짜의 데이터가 존재하지 않습니다."
 
             # 필요한 컬럼만 추출
             need_col = FIELD_COLS.get(field)

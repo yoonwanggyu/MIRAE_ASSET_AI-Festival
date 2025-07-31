@@ -5,7 +5,11 @@ from langchain.tools import tool
 
 from utils import *
 from data_fetcher import *
+import holidays
     
+kr_holidays = holidays.SouthKorea()
+
+
 field_kor_to_eng = {
     "시가": "Open",
     "고가": "High",
@@ -75,7 +79,7 @@ def answer_stock_query(stock: str, target_date: str, field: str):
     if isinstance(data.columns, pd.MultiIndex):
         # target_date에 대한 데이터만 선택
         if target_date not in data.index.strftime('%Y-%m-%d'):
-            return f"[{target_date}] {stock} 데이터를 조회할 수 없습니다. (비거래일 또는 데이터 없음)"
+            return f"{target_date} : {kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
         
         stock_data = data.loc[data.index.strftime('%Y-%m-%d') == target_date].xs(ticker, level=0, axis=1)
         stock_data.index = stock_data.index.strftime("%Y-%m-%d") # 인덱스 날짜 문자열로 변환
@@ -167,7 +171,7 @@ def answer_market_index(target_date:str, market:str):
     data = fetch_from_yfinance([ticker], target_date, (datetime.strptime(target_date, "%Y-%m-%d") + timedelta(days=1)).strftime('%Y-%m-%d'))
     
     if data.empty or target_date not in data.index.strftime('%Y-%m-%d'):
-        return f"[{target_date}] {market} 지수 데이터가 없습니다."
+        return f"[{target_date}] {kr_holidays.get(target_date)}임으로 해당 날짜의 {market} 지수 데이터가 없습니다."
     
     close = float(data.loc[data.index.strftime('%Y-%m-%d') == target_date, 'Close'].iloc[0])
     return f"[{target_date}] {market} 지수: {close:.2f}"
@@ -228,7 +232,7 @@ def answer_market_ranking(market:str, target_date:str, field:str, top_n:int, rea
         series = ((now_prices - prev_prices) / prev_prices * 100).dropna()
     else:
         if target_date not in data_need_col.index:
-            return f"[{target_date}] 데이터가 없습니다."
+            return f"[{target_date}] {kr_holidays.get(target_date)}임으로 해당 날짜의 데이터 없음"
         series = data_need_col.loc[target_date].dropna()
 
     ascending = '하락' in reasoning or '하위' in reasoning or '낮은' in reasoning
@@ -281,7 +285,7 @@ def answer_stock_compare(stock_name1:str, stock_name2:str, target_date:str, fiel
     data = get_historical_data([ticker1, ticker2], start_dt, target_date)
 
     if data.empty or target_date not in data.index.strftime('%Y-%m-%d'):
-        return f"[{target_date}] 비교할 데이터를 조회할 수 없습니다."
+        return f"{kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 없습니다."
     
     results = {}
     for name, ticker in zip([stock_name1, stock_name2], [ticker1, ticker2]):
@@ -390,7 +394,8 @@ def answer_market_stock_compare(stock_name:str, target_date:str):
     start_dt = (datetime.strptime(target_date, "%Y-%m-%d") - timedelta(days=7)).strftime("%Y-%m-%d")
     data = get_historical_data(market_tickers, start_dt, target_date)
 
-    if data.empty or len(data) < 2: return f"[{target_date}] 시장 데이터를 조회할 수 없습니다."
+    if data.empty or len(data) < 2: 
+        return f"{kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 없습니다."
     
     price_df = data.xs('Close', level=1, axis=1)
     price_df.index = price_df.index.strftime("%Y-%m-%d")
@@ -402,7 +407,8 @@ def answer_market_stock_compare(stock_name:str, target_date:str):
     market_avg = all_rates.mean()
     stock_chgrate = all_rates.get(ticker)
 
-    if stock_chgrate is None: return f"[{target_date}] {stock_name}의 등락률을 계산할 수 없습니다."
+    if stock_chgrate is None: 
+        return f"[{target_date}] {stock_name}의 등락률을 계산할 수 없습니다."
 
     s_val = f"{stock_chgrate:+.2f}%"
     m_val = f"{market_avg:+.2f}%"
@@ -434,7 +440,8 @@ def answer_market_ratio(stock_name:str, target_date:str):
     if data.empty: return f"[{target_date}] 시장 데이터를 조회할 수 없습니다."
 
     volume_df = data.xs('Volume', level=1, axis=1)
-    if target_date not in volume_df.index.strftime('%Y-%m-%d'): return f"[{target_date}] 거래량 데이터가 없습니다."
+    if target_date not in volume_df.index.strftime('%Y-%m-%d'): 
+        return f"[{target_date}] {kr_holidays.get(target_date)}임으로 해당 날짜의 거래량 데이터가 없습니다."
     
     vols = volume_df.loc[target_date]
     stock_vol = vols.get(ticker)
@@ -475,7 +482,8 @@ def answer_market_compare(target_date:str,field:str):
     results = {}
     for market, ticker in [("KOSPI", "^KS11"), ("KOSDAQ", "^KQ11")]:
         data = fetch_from_yfinance([ticker], start_dt, end_dt)
-        if data.empty or target_date not in data.index.strftime('%Y-%m-%d'): continue
+        if data.empty or target_date not in data.index.strftime('%Y-%m-%d'): 
+            return f"{kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 없습니다."
 
         if field_eng == "change_rate":
             if len(data) < 2: continue

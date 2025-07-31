@@ -7,7 +7,10 @@ import numpy as np
 
 from utils import *
 from data_fetcher import *
-    
+import holidays
+
+kr_holidays = holidays.SouthKorea()
+
 def moving_average(df: pd.DataFrame, window: int, status : str = 'mean') -> pd.DataFrame:
     """
     이동평균선 구하는 함수
@@ -93,7 +96,7 @@ def rsi(target_date:str, threshold:int, operator:str) -> Dict[str, float]:
     rsi_df.index = rsi_df.index.strftime("%Y-%m-%d")  
     
     if target_date not in rsi_df.index:
-        return f"{target_date} : 해당 날짜의 데이터가 존재하지 않습니다."
+        return f"{target_date} : {kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
 
     rsi_on_date = rsi_df.loc[target_date]
 
@@ -323,7 +326,7 @@ def price_vs_adj_ma(target_date:str, ma_window: int, pct: float,operator: Litera
     if not isinstance(data.columns, pd.MultiIndex):
         return "DataFrame columns must be MultiIndex (PriceType, Ticker)"
     if target_date not in data.index:
-        return f"{target_date} is not in index!"
+        return f"{target_date} : {kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
 
     results = {}
     # target_date = pd.to_datetime(target_date)
@@ -417,7 +420,7 @@ def bollinger_bands(target_date:str, bollinger_side : str = 'upper', window: int
     if not isinstance(data.columns, pd.MultiIndex):
         return "DataFrame columns must be MultiIndex (PriceType, Ticker)"
     if target_date not in data.index:
-        return f"{target_date} is not in index!"
+        return f"{target_date} : {kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
     # target_date = pd.to_datetime(target_date)
 
     # Redis 데이터는 Price 레벨이 없으므로 직접 Close 컬럼 사용
@@ -516,7 +519,7 @@ def get_high_volume_stocks(target_date, ma_window, volume_ratio) -> Dict[str, in
             data_need_col = data.xs("Volume", level=0, axis=1)
     data_need_col.index = data_need_col.index.strftime("%Y-%m-%d")  
     if target_date not in data_need_col.index:
-        return f"{target_date} is not in index!"
+        return f"{target_date} : {kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 존재하지 않습니다."
 
     results = {}
     ma_df = moving_average(data_need_col,ma_window)

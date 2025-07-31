@@ -11,3 +11,4 @@ redis
 PyYAML
 
 python-dotenv
+holidays
