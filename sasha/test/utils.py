@@ -9,11 +9,10 @@ def get_today_date() -> str:
     '''
     return datetime.now().strftime("%Y-%m-%d")
 
-def name_to_ticker(name: str, csv_path="/Users/yoon/MIRAE_ASSET_AI-Festival/krx_tickers.csv"):
+def name_to_ticker(name: str, csv_path="/mnt/c/Users/rladl/Desktop/Mirae_Agent/MIRAE_ASSET_AI-Festival/sasha/test/krx_tickers_cleaned.csv"):
     '''
     코스피/코스닥 한글명(종목명) → 6자리 코드.KS/KQ(티커명)
     '''
-
     df = pd.read_csv(csv_path)
     name_std = name.strip()
     row = df.loc[df["name"] == name_std]
@@ -23,7 +22,7 @@ def name_to_ticker(name: str, csv_path="/Users/yoon/MIRAE_ASSET_AI-Festival/krx_
     ticker = row["code"].iloc[0].zfill(6)
     return f"{ticker}.KS" if ticker[0] == "0" else f"{ticker}.KQ"
 
-def ticker_to_name(ticker: str, csv_path="/Users/yoon/MIRAE_ASSET_AI-Festival/krx_tickers.csv") -> str | None:
+def ticker_to_name(ticker: str, csv_path="/mnt/c/Users/rladl/Desktop/Mirae_Agent/MIRAE_ASSET_AI-Festival/sasha/test/krx_tickers_cleaned.csv") -> str | None:
     """
     6자리 코드.KS/KQ(티커명) → 코스피/코스닥 한글명(종목명)
     """

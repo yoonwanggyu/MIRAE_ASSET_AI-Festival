@@ -1,7 +1,6 @@
 # task1_funcs.py 업데이트 버전
 
 from task1_tools import *
-from task4_tools import *  # Task4 추가
 from typing import Dict, Any
 
 # Task1 Function Definitions
