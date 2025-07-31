@@ -18,7 +18,7 @@ def parse_llm_json(text: str) -> dict:
     except json.JSONDecodeError:
         return ast.literal_eval(j)   # fallback
     
-market_list = pd.read_csv("/mnt/c/Users/rladl/Desktop/Mirae_Agent/MIRAE_ASSET_AI-Festival/sasha/test/krx_tickers_cleaned.csv")
+market_list = pd.read_csv(r"C:\Users\rladl\Desktop\Mirae_Agent\MIRAE_ASSET_AI-Festival\sasha\test\krx_tickers_cleaned.csv")
 
 def get_tickers(answer):
     if answer['market'] == "KOSPI":
@@ -169,7 +169,7 @@ def screen_stocks(q: dict) -> List[str]:
         return []
     
     # 종목 정보 로드
-    stock_info = pd.read_csv('/mnt/c/Users/rladl/Desktop/Mirae_Agent/MIRAE_ASSET_AI-Festival/sasha/test/krx_tickers_cleaned.csv')  
+    stock_info = pd.read_csv(r'C:\Users\rladl\Desktop\Mirae_Agent\MIRAE_ASSET_AI-Festival\sasha\test\krx_tickers_cleaned.csv')  
     ticker_to_name = dict(zip(stock_info['code'], stock_info['name']))
 
     # 조건 수

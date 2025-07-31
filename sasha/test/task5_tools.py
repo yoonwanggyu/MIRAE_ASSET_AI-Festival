@@ -14,7 +14,6 @@ import asyncio
 import dart_fss
 
 
-
 # =============================================================================
 # Task5 Function Definitions for Function Calling
 # =============================================================================
@@ -421,6 +420,10 @@ def format_growth_prompt(fin_data: Dict[str, Any],
 # 3. 재무건전성 평가 (DART API) 데이터 수집 & 처리 모듈
 # =============================================================================
 
+from typing import List, Dict, Any
+import pandas as pd
+import dart_fss
+
 def get_dart_disclosure_data(corp_name: str, corp_code: str,
                               data_types: List[str] = None,
                               bsns_year: str = "2023",
@@ -447,34 +450,22 @@ def get_dart_disclosure_data(corp_name: str, corp_code: str,
         if "financial_summary" in data_types:
             fin = dart_fss.api.finance.fnltt_singl_acnt(corp_code, bsns_year, reprt_code)
             result["data"]["financial_summary"] = pd.DataFrame(fin['list']) if 'list' in fin else {}
+    
+        # 3. 상세 재무정보
+        # Dart API를 사용해보기(상장기업 재무정보)
 
-        # 3. 감사보고서
-        if "audit_report" in data_types:
-            try:
-                report = dart_fss.api.finance.audit_report(corp_code, bsns_year, reprt_code)
-                result["data"]["audit_report"] = pd.DataFrame(report['list']) if 'list' in report else {}
-            except:
-                result["data"]["audit_report"] = {}
+            all = dart_fss.api.filings.get_corp_code()
+            all[0]
 
-        # 4. 최대주주 현황
-        if "major_shareholders" in data_types:
-            holders = dart_fss.api.info.hyslr_sttus(corp_code, bsns_year, reprt_code)
-            result["data"]["major_shareholders"] = pd.DataFrame(holders['list']) if 'list' in holders else {}
+            df = pd.DataFrame(all)
 
-        # 5. 배당 현황
-        if "dividends" in data_types:
-            dividends = dart_fss.api.info.alot_matter(corp_code, bsns_year, reprt_code)
-            result["data"]["dividends"] = pd.DataFrame(dividends['list']) if 'list' in dividends else {}
+            df_listed = df[df['stock_code'].notnull()]
+            df_non_listed = df[df['stock_code'].isnull()]
 
-        # 6. 직원 현황
-        if "employees" in data_types:
-            emp = dart_fss.api.info.emp_sttus(corp_code, bsns_year, reprt_code)
-            result["data"]["employees"] = pd.DataFrame(emp['list']) if 'list' in emp else {}
+            corp_code = df_listed[df_listed['corp_name'] == '카카오'].iloc[0,0]
+            data = dart_fss.api.finance.fnltt_singl_acnt(corp_code, '2021', '11011')
 
-        # 7. 주주 현황
-        if "shareholders" in data_types:
-            shareholders = dart_fss.api.shareholder.elestock(corp_code)
-            result["data"]["shareholders"] = pd.DataFrame(shareholders['list']) if 'list' in shareholders else {}
+            pd.DataFrame(data['list'])
 
         return {"status": "success", "data": result}
 
@@ -484,329 +475,85 @@ def get_dart_disclosure_data(corp_name: str, corp_code: str,
             "message": f"DART 데이터 수집 오류: {str(e)}"
         }
 
+
+
 def format_financial_safety_prompt(dart_data: Dict[str, Any]) -> str:
     """
-    DART 수집 데이터에서 재무건전성 판단에 필요한 주요 지표를 추출하고,
-    금융 전문가 수준의 체계적 분석을 위한 프롬프트 생성
-    
-    Args:
-        dart_data: get_dart_disclosure_data()의 result["data"] 값
-    
-    Returns:
-        str: 재무건전성 분석용 프롬프트 텍스트
+    DART financial_summary 데이터 기반으로 주요 계정과 재무비율을 계산해,
+    프롬프트용 요약 텍스트 생성.
+    - dart_data: result["data"]["data"] 구조의 딕셔너리
     """
-    prompt = ["\n■ 재무건전성 종합 분석 요약"]
-    
+    prompt = ["\n■ 재무 건전성 분석 요약"]
     try:
         fin_df = dart_data.get("financial_summary", pd.DataFrame())
-        shareholders_df = dart_data.get("shareholders", pd.DataFrame())
-        
         if not isinstance(fin_df, pd.DataFrame) or fin_df.empty:
             prompt.append("- 재무제표 요약 데이터가 없습니다.")
             return "\n".join(prompt)
-        
-        # 재무제표 데이터 전처리
-        fin_dict = _process_financial_data(fin_df)
-        
-        # 1. 유동성 분석 (Liquidity Analysis)
-        prompt.extend(_analyze_liquidity(fin_dict))
-        
-        # 2. 활동성 분석 (Activity Analysis)  
-        prompt.extend(_analyze_activity(fin_dict))
-        
-        # 3. 레버리지 분석 (Leverage Analysis)
-        prompt.extend(_analyze_leverage(fin_dict))
-        
-        # 4. 수익성 분석 (Profitability Analysis)
-        prompt.extend(_analyze_profitability(fin_dict))
-        
-        # 5. 성장성 분석 (Growth Analysis)
-        prompt.extend(_analyze_growth(fin_dict))
-        
-        # 6. 지배구조 분석 (Corporate Governance)
-        if not shareholders_df.empty:
-            prompt.extend(_analyze_governance(shareholders_df))
-        
-        # 7. 신용위험 평가 (Credit Risk Assessment)
-        prompt.extend(_assess_credit_risk(fin_dict))
-        
-        # 8. 종합 평가 기준
-        prompt.extend(_comprehensive_evaluation_criteria())
-        
-        prompt.append("\n상기 재무지표와 평가기준을 바탕으로 기업의 재무건전성을 5단계(매우우수/우수/보통/주의/위험)로 평가하고, 각 영역별 강점과 개선점을 제시해주세요.")
-        
+
+        df = fin_df.copy()
+        # 금액을 숫자(int) 타입으로 변환
+        for col in ["thstrm_amount", "frmtrm_amount"]:
+            df[col] = (
+                df[col]
+                .astype(str)
+                .str.replace(",", "")
+                .replace("", "0")
+                .astype(float)
+            )
+
+        def get_amt(name):
+            sub = df.loc[df["account_nm"] == name, "thstrm_amount"]
+            return sub.iloc[0] if len(sub) > 0 else None
+
+        asset = get_amt("자산총계")
+        debt = get_amt("부채총계")
+        equity = get_amt("자본총계")
+        op_profit = get_amt("영업이익")
+        interest = get_amt("이자비용")
+        net_income = get_amt("당기순이익")
+
+        # 주요 계정 원본 출력
+        for name, val in [
+            ("자산총계", asset),
+            ("부채총계", debt),
+            ("자본총계", equity),
+            ("영업이익", op_profit),
+            ("이자비용", interest),
+            ("당기순이익", net_income),
+        ]:
+            if val is not None:
+                prompt.append(f"- {name}: {int(val):,} 원")
+
+        # 비율 계산
+        if asset and debt:
+            cur_asset = get_amt("유동자산")
+            cur_debt = get_amt("유동부채")
+            if cur_asset and cur_debt:
+                prompt.append(f"- 유동비율: {cur_asset/cur_debt*100:.1f}%")
+        if equity and debt:
+            prompt.append(f"- 부채비율: {debt/equity*100:.1f}%")
+            prompt.append(f"- 차입금의존도: {debt/asset*100:.1f}%")
+        if op_profit and interest and interest != 0:
+            prompt.append(f"- 이자보상배율: {op_profit/interest:.1f}")
+        if net_income is not None:
+            ni_sign = "" if net_income >= 0 else "(손실)"
+            prompt.append(f"- 당기순이익: {int(net_income):,} 원 {ni_sign}")
+
+        # 평가 기준 안내
+        prompt.append("\n■ 재무건전성 평가기준 안내")
+        prompt.append("- 유동비율 100% 이상: 단기 지급능력 양호")
+        prompt.append("- 부채비율 200% 이하: 재무 안정성 확보")
+        prompt.append("- 차입금의존도 30% 이하: 외부 자본 의존 낮음")
+        prompt.append("- 이자보상배율 1 이상: 이자 지급능력 확보")
+        prompt.append("- 당기순손실 지속 시 재무위험 주의")
+
+        prompt.append("\n상기 지표와 기준을 종합해 기업의 재무 건전성을 평가해줘.")
         return "\n".join(prompt)
-        
+
     except Exception as e:
-        return f"❌ 재무건전성 분석 중 오류: {str(e)}"
-
-def _process_financial_data(fin_df: pd.DataFrame) -> Dict[str, float]:
-    """재무제표 데이터를 딕셔너리로 변환"""
-    fin_dict = {}
-    
-    # 주요 계정과목 매핑
-    account_mapping = {
-        # 자산
-        "유동자산": ["유동자산"],
-        "비유동자산": ["비유동자산"],
-        "자산총계": ["자산총계"],
-        "현금및현금성자산": ["현금및현금성자산", "현금및단기금융상품"],
-        "매출채권": ["매출채권", "받을어음및매출채권"],
-        "재고자산": ["재고자산"],
-        
-        # 부채
-        "유동부채": ["유동부채"],
-        "비유동부채": ["비유동부채"],
-        "부채총계": ["부채총계"],
-        "차입금": ["단기차입금", "장기차입금", "사채"],
-        "이자비용": ["이자비용"],
-        
-        # 자본
-        "자본총계": ["자본총계"],
-        "자본금": ["자본금"],
-        "이익잉여금": ["이익잉여금"],
-        
-        # 손익
-        "매출액": ["매출액", "수익(매출액)"],
-        "영업이익": ["영업이익"],
-        "당기순이익": ["당기순이익"],
-        "법인세비용": ["법인세비용"],
-        "EBITDA": ["EBITDA"],
-        "감가상각비": ["감가상각비"]
-    }
-    
-    for key, account_names in account_mapping.items():
-        for account_name in account_names:
-            matching_rows = fin_df[fin_df["account_nm"] == account_name]
-            if not matching_rows.empty:
-                value = matching_rows.iloc[0]["thstrm_amount"]
-                try:
-                    fin_dict[key] = float(value) if value and str(value).replace('-','').replace('.','').isdigit() else 0
-                    break
-                except:
-                    fin_dict[key] = 0
-        
-        if key not in fin_dict:
-            fin_dict[key] = 0
-    
-    return fin_dict
-
-def _analyze_liquidity(fin_dict: Dict[str, float]) -> list:
-    """유동성 분석"""
-    analysis = ["\n■ 1. 유동성 분석 (Liquidity Analysis)"]
-    
-    # 유동비율 (Current Ratio)
-    current_ratio = (fin_dict["유동자산"] / fin_dict["유동부채"] * 100) if fin_dict["유동부채"] != 0 else 0
-    analysis.append(f"- 유동비율: {current_ratio:.1f}% (유동자산/유동부채)")
-    
-    # 당좌비율 (Quick Ratio)
-    quick_assets = fin_dict["유동자산"] - fin_dict["재고자산"]
-    quick_ratio = (quick_assets / fin_dict["유동부채"] * 100) if fin_dict["유동부채"] != 0 else 0
-    analysis.append(f"- 당좌비율: {quick_ratio:.1f}% ((유동자산-재고자산)/유동부채)")
-    
-    # 현금비율 (Cash Ratio)
-    cash_ratio = (fin_dict["현금및현금성자산"] / fin_dict["유동부채"] * 100) if fin_dict["유동부채"] != 0 else 0
-    analysis.append(f"- 현금비율: {cash_ratio:.1f}% (현금성자산/유동부채)")
-    
-    # 순운전자본 (Net Working Capital)
-    nwc = fin_dict["유동자산"] - fin_dict["유동부채"]
-    analysis.append(f"- 순운전자본: {nwc:,.0f}원 (유동자산-유동부채)")
-    
-    return analysis
-
-def _analyze_activity(fin_dict: Dict[str, float]) -> list:
-    """활동성 분석"""
-    analysis = ["\n■ 2. 활동성 분석 (Activity Analysis)"]
-    
-    # 총자산회전율 (Total Asset Turnover)
-    asset_turnover = fin_dict["매출액"] / fin_dict["자산총계"] if fin_dict["자산총계"] != 0 else 0
-    analysis.append(f"- 총자산회전율: {asset_turnover:.2f}회 (매출액/총자산)")
-    
-    # 매출채권회전율 (Receivables Turnover)
-    if fin_dict["매출채권"] != 0:
-        receivable_turnover = fin_dict["매출액"] / fin_dict["매출채권"]
-        receivable_days = 365 / receivable_turnover if receivable_turnover != 0 else 0
-        analysis.append(f"- 매출채권회전율: {receivable_turnover:.1f}회, 회수기간: {receivable_days:.0f}일")
-    
-    # 재고자산회전율 (Inventory Turnover)
-    if fin_dict["재고자산"] != 0:
-        inventory_turnover = fin_dict["매출액"] / fin_dict["재고자산"]
-        inventory_days = 365 / inventory_turnover if inventory_turnover != 0 else 0
-        analysis.append(f"- 재고자산회전율: {inventory_turnover:.1f}회, 보유기간: {inventory_days:.0f}일")
-    
-    return analysis
+        return f"❌ 오류 발생: {str(e)}"
 
 
-def _analyze_leverage(fin_dict: Dict[str, float]) -> list:
-    """레버리지 분석"""
-    analysis = ["\n■ 3. 레버리지 분석 (Leverage Analysis)"]
-    
-    # 부채비율 (Debt Ratio)
-    debt_ratio = (fin_dict["부채총계"] / fin_dict["자본총계"] * 100) if fin_dict["자본총계"] != 0 else 0
-    analysis.append(f"- 부채비율: {debt_ratio:.1f}% (총부채/총자본)")
-    
-    # 부채대자산비율 (Debt to Asset Ratio)
-    debt_to_asset = (fin_dict["부채총계"] / fin_dict["자산총계"] * 100) if fin_dict["자산총계"] != 0 else 0
-    analysis.append(f"- 부채대자산비율: {debt_to_asset:.1f}% (총부채/총자산)")
-    
-    # 이자보상배율 (Interest Coverage Ratio)
-    interest_coverage = fin_dict["영업이익"] / fin_dict["이자비용"] if fin_dict["이자비용"] != 0 else float('inf')
-    if interest_coverage == float('inf'):
-        analysis.append("- 이자보상배율: 무한대 (이자비용 없음)")
-    else:
-        analysis.append(f"- 이자보상배율: {interest_coverage:.1f}배 (영업이익/이자비용)")
-    
-    # 차입금의존도 (Borrowings Dependency)
-    borrowing_dependency = (fin_dict["차입금"] / fin_dict["자산총계"] * 100) if fin_dict["자산총계"] != 0 else 0
-    analysis.append(f"- 차입금의존도: {borrowing_dependency:.1f}% (차입금/총자산)")
-    
-    # 자기자본비율 (Equity Ratio)
-    equity_ratio = (fin_dict["자본총계"] / fin_dict["자산총계"] * 100) if fin_dict["자산총계"] != 0 else 0
-    analysis.append(f"- 자기자본비율: {equity_ratio:.1f}% (총자본/총자산)")
-    
-    return analysis
-
-
-def _analyze_profitability(fin_dict: Dict[str, float]) -> list:
-    """수익성 분석"""
-    analysis = ["\n■ 4. 수익성 분석 (Profitability Analysis)"]
-    
-    # 매출액영업이익률 (Operating Margin)
-    operating_margin = (fin_dict["영업이익"] / fin_dict["매출액"] * 100) if fin_dict["매출액"] != 0 else 0
-    analysis.append(f"- 영업이익률: {operating_margin:.1f}% (영업이익/매출액)")
-    
-    # 매출액순이익률 (Net Margin)
-    net_margin = (fin_dict["당기순이익"] / fin_dict["매출액"] * 100) if fin_dict["매출액"] != 0 else 0
-    analysis.append(f"- 순이익률: {net_margin:.1f}% (당기순이익/매출액)")
-    
-    # 총자산이익률 (ROA)
-    roa = (fin_dict["당기순이익"] / fin_dict["자산총계"] * 100) if fin_dict["자산총계"] != 0 else 0
-    analysis.append(f"- ROA: {roa:.1f}% (당기순이익/총자산)")
-    
-    # 자기자본이익률 (ROE)
-    roe = (fin_dict["당기순이익"] / fin_dict["자본총계"] * 100) if fin_dict["자본총계"] != 0 else 0
-    analysis.append(f"- ROE: {roe:.1f}% (당기순이익/총자본)")
-    
-    # EBITDA 마진
-    if fin_dict["EBITDA"] != 0:
-        ebitda_margin = (fin_dict["EBITDA"] / fin_dict["매출액"] * 100) if fin_dict["매출액"] != 0 else 0
-        analysis.append(f"- EBITDA 마진: {ebitda_margin:.1f}% (EBITDA/매출액)")
-    
-    return analysis
-
-
-def _analyze_growth(fin_dict: Dict[str, float]) -> list:
-    """성장성 분석 (전년대비 데이터가 있을 경우)"""
-    analysis = ["\n■ 5. 성장성 분석 (Growth Analysis)"]
-    analysis.append("- 성장성 분석을 위해서는 전년도 데이터와의 비교가 필요합니다.")
-    analysis.append("- 매출액 성장률, 영업이익 성장률, 자산 성장률 등을 평가하세요.")
-    
-    return analysis
-
-
-def _analyze_governance(shareholders_df: pd.DataFrame) -> list:
-    """지배구조 분석"""
-    analysis = ["\n■ 6. 지배구조 분석 (Corporate Governance)"]
-    
-    try:
-        # 최대주주 지분율
-        if not shareholders_df.empty and 'stkrt' in shareholders_df.columns:
-            max_ownership = shareholders_df['stkrt'].max()
-            analysis.append(f"- 최대주주 지분율: {max_ownership}%")
-            
-            # 소유집중도 평가
-            if max_ownership > 50:
-                analysis.append("- 소유구조: 지배주주 존재 (지분율 50% 초과)")
-            elif max_ownership > 30:
-                analysis.append("- 소유구조: 상당한 영향력 보유 (지분율 30-50%)")
-            else:
-                analysis.append("- 소유구조: 분산된 소유구조 (지분율 30% 이하)")
-        else:
-            analysis.append("- 주주구조 데이터가 불충분합니다.")
-            
-    except Exception as e:
-        analysis.append(f"- 지배구조 분석 오류: {str(e)}")
-    
-    return analysis
-
-
-def _assess_credit_risk(fin_dict: Dict[str, float]) -> list:
-    """신용위험 평가"""
-    analysis = ["\n■ 7. 신용위험 평가 (Credit Risk Assessment)"]
-    
-    # Altman Z-Score 계산 (상장기업용)
-    try:
-        # Z = 1.2*X1 + 1.4*X2 + 3.3*X3 + 0.6*X4 + 1.0*X5
-        # X1 = 순운전자본/총자산
-        # X2 = 이익잉여금/총자산  
-        # X3 = 영업이익/총자산
-        # X4 = 시가총액/총부채 (여기서는 자기자본/총부채로 대체)
-        # X5 = 매출액/총자산
-        
-        x1 = (fin_dict["유동자산"] - fin_dict["유동부채"]) / fin_dict["자산총계"] if fin_dict["자산총계"] != 0 else 0
-        x2 = fin_dict["이익잉여금"] / fin_dict["자산총계"] if fin_dict["자산총계"] != 0 else 0
-        x3 = fin_dict["영업이익"] / fin_dict["자산총계"] if fin_dict["자산총계"] != 0 else 0
-        x4 = fin_dict["자본총계"] / fin_dict["부채총계"] if fin_dict["부채총계"] != 0 else 0
-        x5 = fin_dict["매출액"] / fin_dict["자산총계"] if fin_dict["자산총계"] != 0 else 0
-        
-        z_score = 1.2*x1 + 1.4*x2 + 3.3*x3 + 0.6*x4 + 1.0*x5
-        
-        analysis.append(f"- Altman Z-Score: {z_score:.2f}")
-        
-        if z_score > 2.99:
-            analysis.append("  → 안전 구간 (부도위험 낮음)")
-        elif z_score > 1.81:
-            analysis.append("  → 회색 구간 (주의 필요)")
-        else:
-            analysis.append("  → 위험 구간 (부도위험 높음)")
-            
-    except Exception as e:
-        analysis.append(f"- Z-Score 계산 오류: {str(e)}")
-    
-    # 현금흐름 안정성 (데이터가 있는 경우)
-    if fin_dict["현금및현금성자산"] > 0:
-        cash_to_debt = (fin_dict["현금및현금성자산"] / fin_dict["부채총계"] * 100) if fin_dict["부채총계"] != 0 else 0
-        analysis.append(f"- 현금 대비 부채비율: {cash_to_debt:.1f}%")
-    
-    return analysis
-
-
-def _comprehensive_evaluation_criteria() -> list:
-    """종합 평가 기준"""
-    criteria = ["\n■ 8. 재무건전성 평가 기준"]
-    
-    criteria.extend([
-        "\n【유동성 기준】",
-        "- 매우우수: 유동비율 200%↑, 당좌비율 100%↑",
-        "- 우수: 유동비율 150-200%, 당좌비율 80-100%", 
-        "- 보통: 유동비율 100-150%, 당좌비율 50-80%",
-        "- 주의: 유동비율 80-100%, 당좌비율 30-50%",
-        "- 위험: 유동비율 80%↓, 당좌비율 30%↓",
-        
-        "\n【레버리지 기준】",
-        "- 매우우수: 부채비율 100%↓, 이자보상배율 10배↑",
-        "- 우수: 부채비율 100-150%, 이자보상배율 5-10배",
-        "- 보통: 부채비율 150-200%, 이자보상배율 2-5배", 
-        "- 주의: 부채비율 200-300%, 이자보상배율 1-2배",
-        "- 위험: 부채비율 300%↑, 이자보상배율 1배↓",
-        
-        "\n【수익성 기준】",
-        "- 매우우수: ROE 15%↑, ROA 10%↑, 영업이익률 15%↑",
-        "- 우수: ROE 10-15%, ROA 5-10%, 영업이익률 10-15%",
-        "- 보통: ROE 5-10%, ROA 3-5%, 영업이익률 5-10%",
-        "- 주의: ROE 0-5%, ROA 0-3%, 영업이익률 0-5%", 
-        "- 위험: ROE 0%↓, ROA 0%↓, 영업손실",
-        
-        "\n【신용위험 기준】",
-        "- Altman Z-Score > 2.99: 안전",
-        "- Altman Z-Score 1.81-2.99: 회색지대",
-        "- Altman Z-Score < 1.81: 위험"
-    ])
-    
-    return criteria
-
-
-from typing import Optional
 
 def generate_investment_prompt_summary(
     safety_summary: Optional[str] = None,
