@@ -14,14 +14,16 @@
 ## 🏆 Competition
 **제 9회 미래에셋증권 AI Festival**
 
+
 ## 🗓️ Timeline
 2025.06.25 ~ 2025.07.31
+
 
 ## 👪 Team
 **이하윤** ([hayo0n](https://github.com/hayo0n)) · **김이정** ([shashamalone](https://github.com/shashamalone)) · **윤왕규** ([yoonwanggyu](https://github.com/yoonwanggyu)) 
 
-## 📚 Project Structure
 
+## 📚 Project Structure
 ```plaintext
 📦 프로젝트 루트
 ├── 📂 data/                              # 데이터 저장 디렉토리
@@ -44,6 +46,7 @@
 ├── 📄 upload_to_redis.py                 # Redis 데이터 업로드 스크립트
 └── 📄 requirements.txt                   # Python 패키지 의존성 목록
 ```
+
 
 ## ⚙️ System Architecture
 <p align="center">
@@ -81,10 +84,12 @@ Python ASGI 웹 프레임워크 – 타입 힌트 기반 자동 문서화 & 고�
   컨테이너화를 통한 일관된 개발 및 배포 환경을 제공합니다.<br>
   → 애플리케이션과 Redis를 컨테이너로 구성하여 환경 독립성과 배포 편의성 확보 <br>
 
+
 ## 🗺️ LangGraph Execution Flow
 <p align="center">
   <img src="사진/C46F42F9-43EA-4169-95B1-05CCE65E79BE.jpeg" alt="LangGraph flowchart" width="600"/>
 </p>
+
 
 ## 🔄 Flow Details
 🎯 **Decision Task**
@@ -128,6 +133,7 @@ Task 4 :
   - "최근 많이 오른 주식"
   - "고점 대비 가장 많이 떨어진 종목"
  ```
+
 ⚙️ **Task Tools (Task1 ~ Task3)**
 - 통합: Langchain Tool 데코레이터를 활용하여 HyperClova X와 연동
 - 동작: HyperClova X가 사용자 질문을 분석하여 적합한 도구를 자동 선택 및 실행<br>
@@ -144,7 +150,9 @@ Task 4 :
   Task 3: 5개 도구  
   rsi, detect_cross, price_vs_adj_ma, bollinger_bands, get_high_volume_stocks
   ```
+
 🔧 **Specialized Technology (Task 5)**
+
 
 ## 🚀 API 사용법
 **1️⃣ 서버 기동**
