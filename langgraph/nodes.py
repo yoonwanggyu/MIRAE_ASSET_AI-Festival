@@ -58,38 +58,30 @@ async def handle_task1_tools(state: ChatbotState):
     print(f"DEBUG: Final answer_str in handle_task1_tools: '{answer_str}'")
     return ChatbotState(task_response=answer_str)
 
+
 async def handle_task2_tools(state: ChatbotState):
-    """
-    Task2에 해당하는 노드 함수
-    """
     clova = ChatClovaX(api_key=state["api_key"], model="HCX-005", temperature=0.2)
     user_query = state["question"]
 
-    messages = [("system", TASK2_PROMPT),("human", user_query)]
-    ai_msg = await clova.invoke(messages)
+    messages = [
+        ("system", TASK2_PROMPT),
+        ("human", user_query)
+    ]
+    ai_msg = await clova.ainvoke(messages)
 
     llm_question_analysis = parse_llm_json(ai_msg.content)
 
-    tool_map = {tool.name: tool for tool in task2_tools}
-    llm_with_tools = clova.bind_tools(task2_tools)
-    result = await llm_with_tools.ainvoke(llm_question_analysis)
+    json_str = json.dumps(llm_question_analysis, ensure_ascii=False)
 
-    answers = []
-    if hasattr(result, "tool_calls") and result.tool_calls:
-        for tool_call in result.tool_calls:
-            tool_name = tool_call['name']
-            args = tool_call['args']
-            tool = tool_map.get(tool_name)
-            if tool is not None:
-                answer = await tool.ainvoke(args)
-                answers.append(answer)
-            else:
-                answers.append(f"Tool 결과 없음: {tool_name}")
-        answer_str = "\n".join(map(str, answers))
-    else:
-        answer_str = getattr(result, "content", str(result))
-    print(f"DEBUG: Final answer_str in handle_task2_tools: '{answer_str}'")
-    return ChatbotState(task_response=answer_str)
+    # 분석 결과를 바탕으로 다시 LLM 호출
+    clova2 = ChatClovaX(api_key=state["api_key"], model="HCX-005", temperature=0.2)
+    result_msg = await clova2.ainvoke(
+        [("system", json_str)]
+    )
+
+    print(f"DEBUG: Final answer in handle_task2_tools: '{result_msg.content}'")
+
+    return ChatbotState(task_response=result_msg.content)
 
 async def handle_task3_tools(state: ChatbotState):
     """
@@ -133,7 +125,7 @@ async def handle_task4_tools(state: ChatbotState):
     )
 
     messages = [("system", prompt)]
-    ai_msg = clova.invoke(messages)
+    ai_msg = await clova.ainvoke(messages)
     content = ai_msg.content
 
     return ChatbotState(task_response=content,
