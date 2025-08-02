@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="사진/표지.png" alt="FIN" width="100%""/>
+  <img src="사진/표지 (1).png" alt="FIN" width="100%""/>
 
 <div align="center">
   
