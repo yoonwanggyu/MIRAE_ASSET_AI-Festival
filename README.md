@@ -73,7 +73,7 @@
 
 ## ⚙️ System Architecture
 <p align="center">
-  <img src="사진/sys_arch.png" alt="FIN" width="100%""/>
+  <img src="사진/sys_arch.png" alt="FIN" width="100%""/>
 
 ## ⚒️ Tech Stack Overview
 - 🧠 **LLM : HyperClova X**<br>
