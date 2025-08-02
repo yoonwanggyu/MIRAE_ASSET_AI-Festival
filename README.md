@@ -110,7 +110,7 @@ Python ASGI 웹 프레임워크 – 타입 힌트 기반 자동 문서화 & 고�
 
 ## 🗺️ LangGraph Execution Flow
 <p align="center">
-  <img src="사진/C46F42F9-43EA-4169-95B1-05CCE65E79BE.jpeg" alt="LangGraph flowchart" width="600"/>
+  <img src="사진/C46F42F9-43EA-4169-95B1-05CCE65E79BE.jpeg" alt="LangGraph flowchart" width="600"/>
 </p>
 
 
