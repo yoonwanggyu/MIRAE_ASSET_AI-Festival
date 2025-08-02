@@ -58,6 +58,7 @@
 │   ├── 📄 task1_tools.py                 # 1단계 작업용 도구들
 │   ├── 📄 task2_tools.py                 # 2단계 작업용 도구들
 │   └── 📄 task3_tools.py                 # 3단계 작업용 도구들
+│   └── 📄 task5_tools.py                 # 5단계 작업용 도구들
 ├── 📄 .gitignore                         # 제외 파일 목록
 ├── 📄 Dockerfile                         # Docker 컨테이너 빌드 설정
 ├── 📄 data_fetcher.py                    # Redis 데이터 수집 및 처리
@@ -128,6 +129,7 @@ Python ASGI 웹 프레임워크 – 타입 힌트 기반 자동 문서화 & 고�
 - Task 2: 단순한 수치 조건 (등락률 ±N%, 거래량 전날대비 N% 등)
 - Task 3: 기술적 분석 지표와 매매 신호 (RSI, 이동평균, 볼린저밴드 등)
 - Task 4: 구체적인 기준이나 조건이 명시되지 않아서 해석이 필요한 질문
+- Task 5: 투자 판단 분석
  ```
 ```bash
 # FEW SHOT EXAMPLES
