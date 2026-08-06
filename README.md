@@ -234,7 +234,59 @@ Task4_Tools = [TASK4_FINAL_PROMPT]
 - 즉, 단순히 주식정보를 통해 기업을 판단하는 것이 아닌 "성장성 + 건전성 + 리스크" 등을 결합한 통합적 기업 분석 구조
 ```
 
-## 🚀 API 사용법
+## 🔑 .env 파일 구성
+프로젝트 루트에 `.env.example`을 복사하여 `.env` 파일을 만들고 값을 채워주세요.
+```bash
+cp .env.example .env
+```
+
+| 변수명 | 필수 여부 | 설명 |
+|---|---|---|
+| `NCP_CLOVASTUDIO_API_KEY` | 필수 | HyperClova X(Clova Studio) API 키. Task 분류/답변 생성, Task5 분석에 사용 |
+| `NCP_CLOVASTUDIO_CHAT_URL` | 선택 | Clova Studio Chat Completions 엔드포인트. 미설정 시 기본값(HCX-005) 사용 |
+| `DART_API_KEY` | 필수(Task5) | DART 전자공시시스템 API 키. Task5(투자 판단 분석)의 공시정보 조회에 사용 |
+| `REDIS_HOST` | 선택 | Redis Cluster 호스트. yfinance 캐시 데이터(2024.01~2025.07) 조회에 사용 |
+| `REDIS_PORT` | 선택 | Redis Cluster 포트 (기본값 `6379`) |
+
+> ⚠️ `REDIS_HOST`가 없거나 Redis 연결에 실패해도 서버는 정상 기동되며, 데이터 조회 시 자동으로 yfinance 실시간 호출로 폴백됩니다. 단, 캐시 대상 기간(2024.01~2025.07) 조회 시 Redis 없이는 응답이 비어있을 수 있으니, 로컬 테스트 시엔 해당 기간 밖의 최신 날짜로 질의하는 것을 권장합니다.
+
+## 🧪 로컬 테스트 방법
+**1️⃣ 의존성 설치**
+```bash
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+**2️⃣ 서버 실행 (Docker 없이)**
+```bash
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+`REDIS_HOST`가 없으면 Redis 연결 시도 시 에러 로그가 찍힐 수 있지만, 위에서 설명한 대로 조회 로직은 yfinance로 자동 폴백되어 서버 자체는 문제없이 동작합니다.
+
+**3️⃣ 헬스 체크**
+```bash
+curl http://localhost:8000/health
+# {"status":"ok"}
+```
+
+**4️⃣ 질문 호출**
+```bash
+curl -G --data-urlencode "question=2025-02-25에 RSI가 30 이하인 종목은?" \
+  http://localhost:8000/agent \
+  -H "Authorization: Bearer $NCP_CLOVASTUDIO_API_KEY"
+```
+
+**5️⃣ (선택) LLM/Redis 없이 개별 Tool 함수만 단위 테스트**
+Task1~3의 도구 함수는 LangChain `@tool` 데코레이터가 적용되어 있어 `.invoke({...})`로 직접 호출할 수 있습니다. HyperClova X API 키 없이도 yfinance 기반 로직만 검증하고 싶다면 아래처럼 실행하세요.
+```python
+from tools.task3_tools import rsi
+
+result = rsi.invoke({"target_date": "2025-08-01", "threshold": 30, "operator": "<="})
+print(result)
+```
+
+## 🚀 API 사용법 (배포 서버)
 **1️⃣ 서버 기동**
 ```bash
 docker build -t agent-m .

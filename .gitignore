@@ -110,6 +110,9 @@ dmypy.json
 .env.*
 !.env.example
 
+# gstack local security reports (never commit — may reference secret locations)
+.gstack/
+
 # IDE-specific
 .idea/
 .vscode/

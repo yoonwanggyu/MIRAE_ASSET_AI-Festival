@@ -1,4 +1,5 @@
-import re, requests, asyncio
+import re, requests, asyncio, json, os
+import numpy as np
 
 from langgraph.state import *
 from prompt import *
@@ -9,12 +10,60 @@ from tools.task5_tools import *
 from utils import *
 from langchain_naver import ChatClovaX
 
+def make_clova(state: ChatbotState):
+    """
+    각 노드에서 공통으로 쓰는 ChatClovaX 클라이언트를 생성합니다.
+    """
+    return ChatClovaX(api_key=state["api_key"], model="HCX-005", temperature=0.2)
+
+
+async def run_tool_calling_node(state: ChatbotState, tools: list, node_name: str) -> str:
+    """
+    Task1·Task3처럼 'LLM에 tool을 바인딩 → 호출된 tool 실행 → 결과 문자열 병합'
+    패턴을 공유하는 노드의 공통 처리 함수.
+
+    Args:
+        state: 현재 ChatbotState
+        tools: 바인딩할 LangChain tool 리스트 (예: task1_tools)
+        node_name: DEBUG 로그에 표시할 노드 이름
+
+    Returns:
+        str: tool 실행 결과를 줄바꿈으로 이어붙인 문자열.
+             tool_calls가 없으면 LLM 응답 본문을 그대로 반환.
+    """
+    clova = make_clova(state)
+    user_query = state["question"]
+
+    tool_map = {tool.name: tool for tool in tools}
+    llm_with_tools = clova.bind_tools(tools)
+    result = await llm_with_tools.ainvoke(user_query)
+
+    if not (hasattr(result, "tool_calls") and result.tool_calls):
+        answer_str = getattr(result, "content", str(result))
+        print(f"DEBUG: Final answer_str in {node_name}: '{answer_str}'")
+        return answer_str
+
+    answers = []
+    for tool_call in result.tool_calls:
+        tool_name = tool_call['name']
+        args = tool_call['args']
+        tool = tool_map.get(tool_name)
+        if tool is not None:
+            answers.append(await tool.ainvoke(args))
+        else:
+            answers.append(f"Tool 결과 없음: {tool_name}")
+
+    answer_str = "\n".join(map(str, answers))
+    print(f"DEBUG: Final answer_str in {node_name}: '{answer_str}'")
+    return answer_str
+
+
 async def decision_task(state: ChatbotState):
     """
     LLM이 어떤 Task를 골랐는지 설명을 섞어 출력해도
     'Task1'·'Task2' … 형태로 정확히 추출해 state에 저장.
     """
-    clova = ChatClovaX(api_key=state["api_key"], model="HCX-005", temperature=0.2)
+    clova = make_clova(state)
     user_query = state["question"]
 
     prompt = TASK_ROUTER_PROMPT.format(question=user_query)
@@ -35,35 +84,14 @@ async def handle_task1_tools(state: ChatbotState):
     """
     Task1에 해당하는 노드 함수
     """
-    clova = ChatClovaX(api_key=state["api_key"], model="HCX-005", temperature=0.2)
-    user_query = state["question"]
-
-    tool_map = {tool.name: tool for tool in task1_tools}
-    llm_with_tools = clova.bind_tools(task1_tools)
-    result = await llm_with_tools.ainvoke(user_query)
-
-    answers = []
-    if hasattr(result, "tool_calls") and result.tool_calls:
-        for tool_call in result.tool_calls:
-            tool_name = tool_call['name']
-            args = tool_call['args']
-            tool = tool_map.get(tool_name)
-            if tool is not None:
-                answer = await tool.ainvoke(args)
-                answers.append(answer)
-            else:
-                answers.append(f"Tool 결과 없음: {tool_name}")
-        answer_str = "\n".join(map(str, answers))
-    else:
-        answer_str = getattr(result, "content", str(result))
-    print(f"DEBUG: Final answer_str in handle_task1_tools: '{answer_str}'")
+    answer_str = await run_tool_calling_node(state, task1_tools, "handle_task1_tools")
     return ChatbotState(task_response=answer_str)
 
 async def handle_task2_tools(state: ChatbotState):
     """
     Task2에 해당하는 노드 함수
     """
-    clova = ChatClovaX(api_key=state["api_key"], model="HCX-005", temperature=0.2)
+    clova = make_clova(state)
     user_query = state["question"]
 
     messages = [("system", TASK2_PROMPT),("human", user_query)]
@@ -78,28 +106,7 @@ async def handle_task3_tools(state: ChatbotState):
     """
     Task3에 해당하는 노드 함수
     """
-    clova = ChatClovaX(api_key=state["api_key"], model="HCX-005", temperature=0.2)
-    user_query = state["question"]
-
-    tool_map = {tool.name: tool for tool in task3_tools}
-    llm_with_tools = clova.bind_tools(task3_tools)
-    result = await llm_with_tools.ainvoke(user_query)
-
-    answers = []
-    if hasattr(result, "tool_calls") and result.tool_calls:
-        for tool_call in result.tool_calls:
-            tool_name = tool_call['name']
-            args = tool_call['args']
-            tool = tool_map.get(tool_name)
-            if tool is not None:
-                answer = await tool.ainvoke(args)
-                answers.append(answer)
-            else:
-                answers.append(f"Tool 결과 없음: {tool_name}")
-        answer_str = "\n".join(map(str, answers))
-    else:
-        answer_str = getattr(result, "content", str(result))
-    
+    answer_str = await run_tool_calling_node(state, task3_tools, "handle_task3_tools")
     return ChatbotState(task_response=answer_str)
 
 async def handle_task4_tools(state: ChatbotState):
@@ -108,7 +115,7 @@ async def handle_task4_tools(state: ChatbotState):
     - LLM이 자체 판단으로 [redirect: TaskX] 태그를 포함하면 해당 Task로 연결 가능.
     - tool은 호출하지 않음.
     """
-    clova = ChatClovaX(api_key=state["api_key"], model="HCX-005", temperature=0.2)
+    clova = make_clova(state)
     user_query = state["question"]
 
     prompt = TASK4_PROMPT.format(
@@ -139,9 +146,20 @@ def convert_numpy_types(obj):
         return obj
     
 
+CLOVASTUDIO_CHAT_URL = os.getenv(
+    "NCP_CLOVASTUDIO_CHAT_URL",
+    "https://clovastudio.stream.ntruss.com/testapp/v3/chat-completions/HCX-005",
+)
+
 async def handle_task5_tools(state: ChatbotState):
     user_query = state["question"]
-    
+
+    url = CLOVASTUDIO_CHAT_URL
+    headers = {
+        "Authorization": f"Bearer {state['api_key']}",
+        "Content-Type": "application/json; charset=utf-8",
+    }
+
     data = {
         "model": "HCX-005",
         "messages": [
@@ -193,20 +211,33 @@ async def handle_task5_tools(state: ChatbotState):
         all_outputs[fn_name] = out
         final_output = out
 
+    final_output = convert_numpy_types(final_output)
+    all_outputs = convert_numpy_types(all_outputs)
+
+    # agent_answer는 task_response를 읽어 TASK5_FINAL_PROMPT를 채우므로,
+    # tool 출력을 task_response에도 함께 실어 보낸다.
     return ChatbotState(
+        task_response=json.dumps(all_outputs, ensure_ascii=False, default=str),
         tools=convert_numpy_types(result),
-        tools_response=convert_numpy_types(final_output),
-        all_tool_outputs=convert_numpy_types(all_outputs)
+        tools_response=final_output,
+        all_tool_outputs=all_outputs
     )
 
 async def agent_answer(state: ChatbotState):
     """
     Task 결과를 토대로 최종 Answer 생성 함수
     """
-    clova = ChatClovaX(api_key=state["api_key"], model="HCX-005", temperature=0.2)
+    clova = make_clova(state)
     user_query = state["question"]
-    task_response = state['task_response']
-    decision_task = state['decision_task']
+
+    # Task 노드를 거치지 않고 곧바로 이 노드로 라우팅되는 경우(알 수 없는 decision 값)
+    # task_response가 아예 없을 수 있으므로 KeyError 대신 빈 결과로 처리한다.
+    task_response = state.get('task_response')
+    decision_task = state.get('decision_task') or ''
+
+    if task_response is None or task_response == '':
+        print(f"DEBUG: agent_answer: task_response 없음 (decision_task='{decision_task}'). 분석 결과 없이 답변 생성.")
+        task_response = "분석 결과 없음 (질문을 처리할 수 있는 도구를 찾지 못했습니다)."
 
     if decision_task.lower() == 'task5':
         prompt = TASK5_FINAL_PROMPT.format(question = user_query,

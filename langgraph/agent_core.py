@@ -54,7 +54,7 @@ workflow.add_conditional_edges(
 workflow.add_edge("handle_task1_tools", "agent_answer")
 workflow.add_edge("handle_task2_tools", "agent_answer")
 workflow.add_edge("handle_task3_tools", "agent_answer")
-workflow.add_edge("handle_task4_tools", END)
+workflow.add_edge("handle_task4_tools", "agent_answer")
 workflow.add_edge("handle_task5_tools", "agent_answer")
 workflow.add_edge("agent_answer", END)
 

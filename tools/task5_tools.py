@@ -1,4 +1,5 @@
 # task5_tools.py - 투자 판단 분석 도구
+import os
 from utils import *
 from datetime import datetime, timedelta
 import pandas as pd
@@ -12,6 +13,21 @@ import random
 import json
 import asyncio
 import dart_fss
+
+# Clova Studio 호출용 엔드포인트/헤더
+# handle_task5_tools 노드에서 사용자별 api_key로 별도 헤더를 구성해 호출하는 것과 달리,
+# 아래 보조 분석 함수(format_growth_prompt 등)는 도구 호출로 실행되어 상태(state)의
+# api_key에 접근할 수 없으므로 서버 환경변수의 기본 키를 사용합니다.
+url = os.getenv(
+    "NCP_CLOVASTUDIO_CHAT_URL",
+    "https://clovastudio.stream.ntruss.com/testapp/v3/chat-completions/HCX-005",
+)
+headers = {
+    "Authorization": f"Bearer {os.getenv('NCP_CLOVASTUDIO_API_KEY', '')}",
+    "Content-Type": "application/json; charset=utf-8",
+}
+
+DART_API_KEY = os.getenv("DART_API_KEY")
 
 
 # =============================================================================
@@ -210,7 +226,7 @@ task5_functions = [
 # =============================================================================
 
 
-def get_info_stock(user_query: str, csv_path=r"data\krx_tickers_with_market.csv"):
+def get_info_stock(user_query: str, csv_path="data/krx_tickers_with_market.csv"):
     """
     사용자 질문에서 종목명을 추출하고 티커 및 기업코드 반환
     """
@@ -232,8 +248,9 @@ def get_info_stock(user_query: str, csv_path=r"data\krx_tickers_with_market.csv"
 
     # 티커/기업코드 조회
     row = df.loc[df["name"] == stock_name].iloc[0]
-    ticker_raw = row["code"]
-    ticker = name_to_ticker(ticker_raw)
+    code = str(row["code"]).zfill(6)
+    suffix = ".KS" if str(row["market"]).upper() == "KOSPI" else ".KQ"
+    ticker = f"{code}{suffix}"
     corp_code = row["corp_code"]
 
     return {
@@ -489,8 +506,9 @@ def get_dart_disclosure_data(corp_name: str, corp_code: str,
 
     try:
         # API 키 설정
-        api_key = '0778fdc977a04c6bc0516326fe22cea0224b233b'
-        dart_fss.set_api_key(api_key)
+        if not DART_API_KEY:
+            raise ValueError("DART_API_KEY 환경변수가 설정되지 않았습니다.")
+        dart_fss.set_api_key(DART_API_KEY)
         
         result = {"corp_name": corp_name, "corp_code": corp_code, "data": {}}
 
