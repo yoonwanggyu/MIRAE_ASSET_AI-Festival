@@ -172,6 +172,10 @@ def get_historical_data(tickers: list, start_date: str, end_date: str) -> pd.Dat
     """
     데이터 소스를 결정하여 특정 '기간'의 시계열 데이터를 가져오는 통합 함수.
     기간이 Redis와 yfinance에 걸쳐 있는 경우는 현재 미지원 (yfinance로 통일).
+
+    end_date는 두 데이터 소스 모두에서 '포함(inclusive)'으로 동작합니다.
+    fetch_from_redis는 pd.date_range로 end_date를 포함하지만 yfinance의 end는
+    제외(exclusive)이므로, yfinance 경로에서만 하루를 더해 의미를 맞춥니다.
     """
     is_start_redis = is_redis_target_date(start_date)
     is_end_redis = is_redis_target_date(end_date)
@@ -180,14 +184,15 @@ def get_historical_data(tickers: list, start_date: str, end_date: str) -> pd.Dat
         print(f"INFO: Redis에서 기간 데이터를 조회합니다. ({start_date} ~ {end_date})")
         # 수정된 fetch_from_redis 함수를 사용하여 한 번에 구간 데이터를 가져옴 (티커 필터링 포함)
         combined_df = fetch_from_redis(start_date, end_date, tickers)
-        
+
         if combined_df.empty:
             return pd.DataFrame()
-            
+
         return combined_df
     else:
         # 기간이 걸쳐있거나, 모두 yfinance 대상인 경우 yfinance 사용
-        return fetch_from_yfinance(tickers, start_date, end_date)
+        yf_end_date = (pd.to_datetime(end_date) + timedelta(days=1)).strftime("%Y-%m-%d")
+        return fetch_from_yfinance(tickers, start_date, yf_end_date)
 
 def get_single_day_data(stock_name: str, code: str, market: str, target_date: str) -> pd.DataFrame:
     """

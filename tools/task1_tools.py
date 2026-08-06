@@ -20,6 +20,22 @@ field_kor_to_eng = {
     "시가총액": "marketCap"
 }
 
+def extract_close_series(data: pd.DataFrame) -> pd.Series:
+    """
+    yfinance 응답에서 종가(Close) 시리즈를 추출합니다.
+
+    fetch_from_yfinance는 group_by="ticker"로 호출되므로 단일 티커를 조회해도
+    컬럼이 MultiIndex (Ticker, Price)로 내려옵니다. 지수 조회처럼 티커가 하나뿐인
+    경우에도 data['Close']로는 접근할 수 없으므로 두 구조를 모두 처리합니다.
+    """
+    if isinstance(data.columns, pd.MultiIndex):
+        try:
+            close_df = data.xs("Close", level=1, axis=1)
+        except KeyError:
+            close_df = data.xs("Close", level=0, axis=1)
+        return close_df.iloc[:, 0]
+    return data["Close"]
+
 @tool("answer_stock_query", description="특정 날짜에 특정 종목의 종가, 시가, 고가, 저가, 등락률 계산")
 def answer_stock_query(stock: str, target_date: str, field: str):
     """
@@ -172,7 +188,8 @@ def answer_market_index(target_date:str, market:str):
     if data.empty or target_date not in data.index.strftime('%Y-%m-%d'):
         return f"[{target_date}] {kr_holidays.get(target_date)}임으로 해당 날짜의 {market} 지수 데이터가 없습니다."
     
-    close = float(data.loc[data.index.strftime('%Y-%m-%d') == target_date, 'Close'].iloc[0])
+    close_series = extract_close_series(data)
+    close = float(close_series[close_series.index.strftime('%Y-%m-%d') == target_date].iloc[0])
     return f"[{target_date}] {market} 지수: {close:.2f}"
 
 @tool("answer_market_ranking", description="특정 날짜의 시장 내 종가/거래량/등락률 상위 또는 하위 종목 순위 조회")
@@ -504,12 +521,13 @@ def answer_market_compare(target_date:str,field:str):
         if data.empty or target_date not in data.index.strftime('%Y-%m-%d'): 
             return f"{kr_holidays.get(target_date)}임으로 해당 날짜의 데이터가 없습니다."
 
+        close_series = extract_close_series(data)
         if field_eng == "change_rate":
-            if len(data) < 2: continue
-            rate = data['Close'].pct_change().iloc[-1] * 100
+            if len(close_series) < 2: continue
+            rate = close_series.pct_change().iloc[-1] * 100
             results[market] = rate
-        else: 
-            val = float(data.loc[data.index.strftime('%Y-%m-%d') == target_date, 'Close'].iloc[0])
+        else:
+            val = float(close_series[close_series.index.strftime('%Y-%m-%d') == target_date].iloc[0])
             results[market] = val
 
     if not results: return f"[{target_date}] 지수 데이터를 조회할 수 없습니다."
